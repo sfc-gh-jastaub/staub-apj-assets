@@ -63,7 +63,7 @@ Based on that narrative, design the SIMPLEST demo that still illustrates every p
 Build the data layer per 02_Design. Use/create database snow_ambition_demo_db, schema {SCHEMA}, warehouse {WAREHOUSE}.
 Author scripts to {BUILD_DIR}/ (numbered) → execute against Snowflake → fix-in-file if it fails → keep in sync.
 Set-based SQL only. No row-by-row INSERTs. No Python. Generate synthetic data deterministically (HASH-based, not RANDOM with a per-row seed). One-line confirmation when done.
-Don't need huge datasets, just what is reasonable for a concise demo. 
+Don't need huge datasets, just what is reasonable for a concise demo. Create at least one table that has a free text field. 
 Should be bronze -> silver -> gold. Use dynamic tables for integration + presentation. Should be only 1 or two tables in gold. 
 ```
 
@@ -89,9 +89,7 @@ Author to {BUILD_DIR}/ → deploy → fix-in-file if it fails. One-line confirma
 
 ---
 
-## Step 7 — (New thread) Upgrade the dashboard to a React app
-
-Start a **fresh CoCo thread** for this step (skills/context don't carry across threads).
+## Step 7 — Upgrade the dashboard to a React app
 
 ```
 Rebuild the Streamlit {APP_PURPOSE} dashboard as an awesome modern React app and run it locally. Add a few high-WOW features and make it sleek and modern. Read the deployed Streamlit app in {BUILD_DIR} for the data + layout to match. State your framework + WOW-feature choices in one line, then build.
@@ -100,8 +98,9 @@ Rebuild the Streamlit {APP_PURPOSE} dashboard as an awesome modern React app and
 ---
 
 ## Step 8 — Build a Snowflake notebook showcasing Cortex AI functions
-
+Start a **fresh CoCo thread** for this step (skills/context don't carry across threads).
 ```
+/staub-live-demo-driver
 Use the snowflake-notebooks skill — load only create + deploy guidance, skip general authoring/exploration.
 Build, deploy & run a Snowflake notebook in {DB}.{SCHEMA} (warehouse {WAREHOUSE}) that showcases Cortex AI functions on {TABLE_OR_VIEW}. Pick the most interesting, demo-worthy analysis and choose from AI_CLASSIFY, AI_SENTIMENT, AI_EXTRACT, AI_SUMMARIZE_AGG, AI_COMPLETE, AI_FILTER. If the data has no free text, generate a synthetic text column first so the AI functions have something rich to work on. Aim for a clear "so what" business insight at the end.
 Concise & easy to follow: short markdown intro per section, one AI step per cell, show the result, ~6-8 cells. Call AI functions as column expressions over the table (never loop per row). Keep the working set small (~20 rows) so it runs fast. Author to {BUILD_DIR}/ → deploy → run top-to-bottom → fix-in-file if a cell errors. State your chosen analysis in one line, then build. Notebook link when done.
