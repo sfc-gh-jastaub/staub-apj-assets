@@ -1,0 +1,310 @@
+<p><strong>⭐ RECOMMENDED FIRST.</strong> Of the three optional steps this is the one to do if you only
+do one. Everything you have built so far lives in a results grid; this turns it into an application
+your client can open, filter and use — written in Python, running inside Snowflake, with no
+infrastructure, no deployment pipeline and no connection string.</p>
+
+<ul class="learning-list">
+    <li>Build a three-tab tax control tower over <code>TAX.V_GST_VS_BAS</code> and
+        <code>TAX.V_GST_EXCEPTIONS</code>.</li>
+    <li>Use the session that already exists rather than authenticating again.</li>
+    <li>Cache every query so that filtering the page does not re-scan the ledger.</li>
+    <li>Understand why every query in the app aggregates or limits before it returns.</li>
+</ul>
+
+<h3>Create the app in Snowsight</h3>
+
+<ol>
+    <li>In the left navigation choose <strong>Projects</strong>, then <strong>Streamlit</strong>.</li>
+    <li>Click <strong>+ Streamlit App</strong>.</li>
+    <li>Name it <code>GST Tax Control Tower</code>.</li>
+    <li>Set <strong>App location</strong> to database <code>GSI_TAX_WORKSHOP</code> and schema
+        <code>APPS</code>.</li>
+    <li>Set <strong>App warehouse</strong> to <code>GSI_TAX_WH</code>.</li>
+    <li>Click <strong>Create</strong>, delete the sample code in the editor, paste the block below,
+        and click <strong>Run</strong>.</li>
+</ol>
+
+<p>The app runs unmodified. There is nothing to edit, nothing to configure and no packages to add —
+Streamlit and the Snowpark library are already present in the environment.</p>
+
+<h3>Block 1 — the application</h3>
+
+<div class="code-block"><div class="code-header"><span class="code-lang">python</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>import streamlit as st
+import pandas as pd
+from snowflake.snowpark.context import get_active_session
+
+st.set_page_config(page_title="GST Tax Control Tower", layout="wide")
+
+# The session already exists. Never build a connection inside
+# Streamlit in Snowflake.
+session = get_active_session()
+
+
+# ---------------------------------------------------------------------
+# Every query below is aggregated or LIMITed server side. The ledger is
+# 2,400,000 lines and the exception register is 253,394 - returning either
+# of them row level would time the app out and achieve nothing, because
+# nobody reads 253,394 rows. Aggregate in Snowflake, render the summary.
+# ---------------------------------------------------------------------
+
+@st.cache_data(ttl=600)
+def load_headline():
+    return session.sql("""
+        SELECT COUNT(*)                                            AS ENTITY_PERIODS,
+               SUM(IFF(RECON_STATUS = 'MATCHED', 1, 0))            AS MATCHED,
+               SUM(IFF(RECON_STATUS = 'INVESTIGATE', 1, 0))        AS INVESTIGATE,
+               ROUND(SUM(ABS(VARIANCE_NET)), 2)                    AS TOTAL_ABS_VARIANCE
+        FROM TAX.V_GST_VS_BAS
+    """).to_pandas()
+
+
+@st.cache_data(ttl=600)
+def load_exception_headline():
+    return session.sql("""
+        SELECT COUNT(*)                                    AS FLAGGED_LINES,
+               SUM(IFF(MAX_SEVERITY = 'HIGH', 1, 0))       AS HIGH_SEVERITY,
+               ROUND(AVG(RISK_SCORE), 2)                   AS AVG_RISK_SCORE
+        FROM TAX.V_GST_EXCEPTIONS
+    """).to_pandas()
+
+
+@st.cache_data(ttl=600)
+def load_recon(status_filter):
+    where = ""
+    if status_filter != "All":
+        where = f"WHERE RECON_STATUS = '{status_filter}'"
+    return session.sql(f"""
+        SELECT ENTITY_NAME, TAX_PERIOD, COMPUTED_NET_GST, LODGED_NET_GST,
+               VARIANCE_NET, VARIANCE_PCT, RECON_STATUS
+        FROM TAX.V_GST_VS_BAS
+        {where}
+        ORDER BY ABS(VARIANCE_NET) DESC
+        LIMIT 500
+    """).to_pandas()
+
+
+@st.cache_data(ttl=600)
+def load_variance_by_entity():
+    return session.sql("""
+        SELECT ENTITY_NAME,
+               ROUND(SUM(ABS(VARIANCE_NET)), 2) AS TOTAL_ABS_VARIANCE
+        FROM TAX.V_GST_VS_BAS
+        GROUP BY ENTITY_NAME
+        ORDER BY TOTAL_ABS_VARIANCE DESC
+    """).to_pandas()
+
+
+@st.cache_data(ttl=600)
+def load_filter_values():
+    entities = session.sql("""
+        SELECT DISTINCT ENTITY_NAME FROM TAX.V_GST_EXCEPTIONS ORDER BY 1
+    """).to_pandas()["ENTITY_NAME"].tolist()
+    codes = session.sql("""
+        SELECT DISTINCT VALUE::VARCHAR AS EXCEPTION_CODE
+        FROM TAX.V_GST_EXCEPTIONS,
+             LATERAL FLATTEN(input =&gt; SPLIT(EXCEPTION_CODES, ', '))
+        ORDER BY 1
+    """).to_pandas()["EXCEPTION_CODE"].tolist()
+    return entities, codes
+
+
+@st.cache_data(ttl=600)
+def load_exceptions(severity, entity, code, row_limit):
+    clauses = []
+    if severity != "All":
+        clauses.append(f"MAX_SEVERITY = '{severity}'")
+    if entity != "All":
+        clauses.append(f"ENTITY_NAME = '{entity}'")
+    if code != "All":
+        clauses.append(f"EXCEPTION_CODES LIKE '%{code}%'")
+    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+    return session.sql(f"""
+        SELECT GL_LINE_ID, ENTITY_NAME, TAX_PERIOD, SOURCE_SYSTEM,
+               SUPPLIER_NAME, SUPPLY_CATEGORY, TAX_TREATMENT, APPLIED_RULE_ID,
+               NET_AMOUNT, BOOKED_TAX_AMOUNT, EXPECTED_TAX_AMOUNT, TAX_VARIANCE,
+               EXCEPTION_CODES, MAX_SEVERITY, RISK_SCORE
+        FROM TAX.V_GST_EXCEPTIONS
+        {where}
+        ORDER BY RISK_SCORE DESC
+        LIMIT {row_limit}
+    """).to_pandas()
+
+
+@st.cache_data(ttl=600)
+def load_exception_summary(severity, entity, code):
+    clauses = []
+    if severity != "All":
+        clauses.append(f"MAX_SEVERITY = '{severity}'")
+    if entity != "All":
+        clauses.append(f"ENTITY_NAME = '{entity}'")
+    if code != "All":
+        clauses.append(f"EXCEPTION_CODES LIKE '%{code}%'")
+    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+    return session.sql(f"""
+        SELECT COUNT(*)                                  AS FLAGGED_LINES,
+               ROUND(SUM(ABS(COALESCE(TAX_VARIANCE,0))),2) AS ABS_TAX_VARIANCE
+        FROM TAX.V_GST_EXCEPTIONS
+        {where}
+    """).to_pandas()
+
+
+@st.cache_data(ttl=600)
+def load_heatmap():
+    return session.sql("""
+        SELECT ENTITY_NAME,
+               TO_VARCHAR(TAX_PERIOD, 'YYYY-MM') AS TAX_PERIOD,
+               COUNT(*)                          AS EXCEPTION_LINES
+        FROM TAX.V_GST_EXCEPTIONS
+        WHERE TAX_PERIOD IS NOT NULL
+        GROUP BY 1, 2
+        ORDER BY 1, 2
+    """).to_pandas()
+
+
+# ---------------------------------------------------------------------
+# Headline tiles
+# ---------------------------------------------------------------------
+st.title("GST Tax Control Tower")
+st.caption("Computed GST position, lodged BAS reconciliation and risk-ranked exception register.")
+
+h = load_headline().iloc[0]
+e = load_exception_headline().iloc[0]
+
+c1, c2, c3, c4, c5 = st.columns(5)
+c1.metric("Entity-periods", f"{int(h['ENTITY_PERIODS']):,}")
+c2.metric("Matched", f"{int(h['MATCHED']):,}")
+c3.metric("Investigate", f"{int(h['INVESTIGATE']):,}")
+c4.metric("Flagged lines", f"{int(e['FLAGGED_LINES']):,}")
+c5.metric("High severity", f"{int(e['HIGH_SEVERITY']):,}")
+
+st.divider()
+
+tab_recon, tab_exceptions, tab_heatmap = st.tabs(
+    ["BAS reconciliation", "Exception register", "Entity heatmap"]
+)
+
+
+# ---------------------------------------------------------------------
+# Tab 1 - BAS reconciliation
+# ---------------------------------------------------------------------
+with tab_recon:
+    st.subheader("Computed GST against lodged BAS")
+
+    status = st.selectbox(
+        "Recon status",
+        ["All", "MATCHED", "REVIEW", "INVESTIGATE"],
+        key="recon_status",
+    )
+
+    st.markdown("**Total absolute variance by entity**")
+    st.bar_chart(
+        load_variance_by_entity().set_index("ENTITY_NAME"),
+        y="TOTAL_ABS_VARIANCE",
+        height=320,
+    )
+
+    recon = load_recon(status)
+    st.markdown(f"**Entity-periods, worst variance first** ({len(recon):,} shown)")
+    st.dataframe(
+        recon.style.format({
+            "COMPUTED_NET_GST": "{:,.2f}",
+            "LODGED_NET_GST": "{:,.2f}",
+            "VARIANCE_NET": "{:,.2f}",
+            "VARIANCE_PCT": "{:,.2f}",
+        }),
+        use_container_width=True,
+        height=420,
+    )
+
+
+# ---------------------------------------------------------------------
+# Tab 2 - Exception register
+# ---------------------------------------------------------------------
+with tab_exceptions:
+    st.subheader("Risk-ranked exception register")
+
+    entities, codes = load_filter_values()
+
+    f1, f2, f3, f4 = st.columns(4)
+    severity = f1.selectbox("Severity", ["All", "HIGH", "MEDIUM", "LOW"], key="ex_sev")
+    entity = f2.selectbox("Entity", ["All"] + entities, key="ex_ent")
+    code = f3.selectbox("Exception code", ["All"] + codes, key="ex_code")
+    row_limit = f4.selectbox("Rows to return", [100, 250, 500, 1000], key="ex_rows")
+
+    summary = load_exception_summary(severity, entity, code).iloc[0]
+    s1, s2 = st.columns(2)
+    s1.metric("Flagged lines matching filters", f"{int(summary['FLAGGED_LINES']):,}")
+    s2.metric("Absolute tax variance", f"{float(summary['ABS_TAX_VARIANCE'] or 0):,.2f}")
+
+    st.caption(
+        "The register holds 253,394 flagged lines. It is always read "
+        "ORDER BY RISK_SCORE DESC with a row limit - the ranking is the point, "
+        "not the volume."
+    )
+
+    st.dataframe(
+        load_exceptions(severity, entity, code, row_limit),
+        use_container_width=True,
+        height=460,
+    )
+
+
+# ---------------------------------------------------------------------
+# Tab 3 - Entity heatmap
+# ---------------------------------------------------------------------
+with tab_heatmap:
+    st.subheader("Exception count by entity and tax period")
+
+    hm = load_heatmap()
+    pivot = hm.pivot(index="ENTITY_NAME", columns="TAX_PERIOD", values="EXCEPTION_LINES")
+    pivot = pivot.fillna(0).astype(int)
+
+    st.dataframe(
+        pivot.style.background_gradient(axis=None, cmap="Reds"),
+        use_container_width=True,
+        height=520,
+    )
+
+    st.caption(
+        "Dark cells are entity-periods carrying the most flagged lines. "
+        "Read down a column for a bad month across the group, and across "
+        "a row for an entity with a persistent problem."
+    )</code></pre></div>
+
+<div class="info-box"><span class="icon">🔑</span><div><strong>Why every query aggregates or limits</strong><p>The two views behind this app sit on 2,400,000 ledger lines and 253,394 flagged exceptions. Pull
+either of those into the browser row-level and the app stalls — and the user learns nothing, because
+nobody reads a quarter of a million rows. Every function above either aggregates in Snowflake and
+returns tens of rows, or ranks by <code>RISK_SCORE</code> and returns hundreds. The compute stays
+where the data is; only the answer travels.</p></div></div>
+
+<div class="info-box success"><span class="icon">⚡</span><div><strong>What you did not have to do</strong><p>There is no connection string, no credential, no driver, no <code>pip install</code>, no
+container, no web server and no deployment. <code>get_active_session()</code> returns the session
+you are already authenticated in, so the app inherits your role and therefore your data access —
+row access policies and masking policies continue to apply. <code>@st.cache_data(ttl=600)</code> on
+every query function means clicking through filters re-renders from cache rather than re-querying,
+so the warehouse can suspend while people are reading.</p></div></div>
+
+<h3>Block 2 — only if the app cannot see the objects</h3>
+
+<p>If the app loads but every tab reports that an object does not exist, the role running the app is
+not the role that built the objects. Run the grants below as
+<code>ACCOUNTADMIN</code>, substituting the role your app runs under, then reload the app.</p>
+
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- Substitute the role the Streamlit app runs under.
+SET app_role = 'SYSADMIN';
+
+GRANT USAGE  ON DATABASE GSI_TAX_WORKSHOP           TO ROLE IDENTIFIER($app_role);
+GRANT USAGE  ON SCHEMA   GSI_TAX_WORKSHOP.TAX       TO ROLE IDENTIFIER($app_role);
+GRANT USAGE  ON SCHEMA   GSI_TAX_WORKSHOP.CURATED   TO ROLE IDENTIFIER($app_role);
+GRANT USAGE  ON SCHEMA   GSI_TAX_WORKSHOP.RAW_DATA  TO ROLE IDENTIFIER($app_role);
+
+GRANT SELECT ON ALL VIEWS           IN SCHEMA GSI_TAX_WORKSHOP.TAX      TO ROLE IDENTIFIER($app_role);
+GRANT SELECT ON ALL TABLES          IN SCHEMA GSI_TAX_WORKSHOP.TAX      TO ROLE IDENTIFIER($app_role);
+GRANT SELECT ON ALL DYNAMIC TABLES  IN SCHEMA GSI_TAX_WORKSHOP.CURATED  TO ROLE IDENTIFIER($app_role);
+GRANT SELECT ON ALL TABLES          IN SCHEMA GSI_TAX_WORKSHOP.RAW_DATA TO ROLE IDENTIFIER($app_role);
+
+GRANT USAGE  ON WAREHOUSE GSI_TAX_WH TO ROLE IDENTIFIER($app_role);</code></pre></div>
+
+<div class="info-box success"><span class="icon">✅</span><div><strong>Where you are</strong><p>The same two views that produced a results grid in Step 5 are now a filterable application with
+headline tiles, a variance chart, a risk-ranked register and a heatmap — built in one file, running
+next to the data, and shareable with a URL. This is the visual payoff of the whole lab.</p></div></div>

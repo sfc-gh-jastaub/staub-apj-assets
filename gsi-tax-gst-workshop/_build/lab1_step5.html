@@ -1,0 +1,264 @@
+<p>You now have a computed GST position for every entity and every period. The client has a lodged
+one, sitting in <code>RAW_DATA.FCT_BAS_LODGED</code> — 532 rows, fourteen entities across
+thirty-eight complete months. Nobody has ever put the two side by side, because until this morning
+there was no computed position to compare against.</p>
+
+<p>Then, halfway through the reconciliation, someone posts a backdated adjustment into the ledger —
+and the auditor asks the question every tax practitioner dreads: <em>show me the ledger exactly as
+it stood when we lodged.</em></p>
+
+<ul class="learning-list">
+    <li>Reconcile computed GST against lodged BAS at entity and period, and classify the result.</li>
+    <li>Watch a backdated posting break a reconciliation that tied five minutes ago.</li>
+    <li>Recover the as-lodged position with one clause of SQL — no backup, no restore.</li>
+    <li>Take an immutable audit snapshot of a 2,400,000-row ledger, instantly and for no storage.</li>
+    <li>Undo a <code>DROP TABLE</code> you should not have run.</li>
+</ul>
+
+<h3>Block 1 — build the reconciliation and run it</h3>
+
+<p>The view below is deliberately conservative in three places. It restricts to
+<code>JURISDICTION = 'AU'</code>, because the lodged data is Australian BAS. It excludes the
+current, incomplete month, which has no lodged BAS yet and would otherwise appear as a large false
+variance every time the workshop is run. And it uses a <code>FULL OUTER JOIN</code>, so a period
+that exists on one side only still appears rather than vanishing — a lodged period with no computed
+lines is exactly as interesting as the reverse.</p>
+
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>CREATE OR REPLACE VIEW TAX.V_GST_VS_BAS AS
+WITH computed AS (
+    SELECT ENTITY_ID, ENTITY_NAME, TAX_PERIOD,
+           ABS(COALESCE(SUM(CASE WHEN DOC_TYPE='AR_INVOICE'
+                                 THEN EXPECTED_TAX_AMOUNT END), 0)) AS COMPUTED_1A,
+           ABS(COALESCE(SUM(CASE WHEN DOC_TYPE='AP_INVOICE' AND RECOVERABLE
+                                 THEN EXPECTED_TAX_AMOUNT END), 0)) AS COMPUTED_1B
+    FROM TAX.V_GST_DETERMINED
+    WHERE JURISDICTION = 'AU' AND TAX_PERIOD IS NOT NULL
+      -- exclude the current, incomplete month: it has no lodged BAS yet and
+      -- would otherwise show as a false variance
+      AND TAX_PERIOD &lt; DATE_TRUNC('month', '2026-07-31'::DATE)
+    GROUP BY ENTITY_ID, ENTITY_NAME, TAX_PERIOD
+)
+SELECT
+    COALESCE(c.ENTITY_ID, b.ENTITY_ID)                              AS ENTITY_ID,
+    COALESCE(c.ENTITY_NAME, e.ENTITY_NAME)                          AS ENTITY_NAME,
+    COALESCE(c.TAX_PERIOD, b.TAX_PERIOD)                            AS TAX_PERIOD,
+    ROUND(COALESCE(c.COMPUTED_1A, 0), 2)                            AS COMPUTED_1A,
+    ROUND(COALESCE(c.COMPUTED_1B, 0), 2)                            AS COMPUTED_1B,
+    ROUND(COALESCE(c.COMPUTED_1A, 0) - COALESCE(c.COMPUTED_1B, 0), 2) AS COMPUTED_NET_GST,
+    COALESCE(b.LABEL_1A_GST_ON_SALES, 0)                            AS LODGED_1A,
+    COALESCE(b.LABEL_1B_GST_CREDITS, 0)                             AS LODGED_1B,
+    COALESCE(b.NET_GST, 0)                                          AS LODGED_NET_GST,
+    ROUND(COALESCE(c.COMPUTED_1A,0) - COALESCE(b.LABEL_1A_GST_ON_SALES,0), 2) AS VARIANCE_1A,
+    ROUND(COALESCE(c.COMPUTED_1B,0) - COALESCE(b.LABEL_1B_GST_CREDITS,0), 2)  AS VARIANCE_1B,
+    ROUND((COALESCE(c.COMPUTED_1A,0) - COALESCE(c.COMPUTED_1B,0))
+          - COALESCE(b.NET_GST,0), 2)                               AS VARIANCE_NET,
+    ROUND(((COALESCE(c.COMPUTED_1A,0) - COALESCE(c.COMPUTED_1B,0)) - COALESCE(b.NET_GST,0))
+          / NULLIF(ABS(COALESCE(b.NET_GST,0)), 0) * 100, 2)         AS VARIANCE_PCT,
+    CASE
+      WHEN ABS((COALESCE(c.COMPUTED_1A,0)-COALESCE(c.COMPUTED_1B,0))
+               - COALESCE(b.NET_GST,0)) &lt;= 100  THEN 'MATCHED'
+      WHEN ABS((COALESCE(c.COMPUTED_1A,0)-COALESCE(c.COMPUTED_1B,0))
+               - COALESCE(b.NET_GST,0)) &lt;= 1000 THEN 'REVIEW'
+      ELSE 'INVESTIGATE'
+    END                                                             AS RECON_STATUS
+FROM computed c
+FULL OUTER JOIN RAW_DATA.FCT_BAS_LODGED b
+     ON b.ENTITY_ID = c.ENTITY_ID AND b.TAX_PERIOD = c.TAX_PERIOD
+LEFT JOIN RAW_DATA.DIM_LEGAL_ENTITY e
+     ON e.ENTITY_ID = COALESCE(c.ENTITY_ID, b.ENTITY_ID);
+
+-- The reconciliation. One row per entity-period, worst first.
+SELECT RECON_STATUS,
+       COUNT(*)                        AS ENTITY_PERIODS,
+       ROUND(SUM(ABS(VARIANCE_NET)),2) AS TOTAL_ABS_VARIANCE
+FROM TAX.V_GST_VS_BAS
+GROUP BY RECON_STATUS
+ORDER BY TOTAL_ABS_VARIANCE DESC;</code></pre></div>
+
+<table class="data-table">
+    <thead>
+        <tr><th>Recon status</th><th>Entity-periods</th><th>What it means</th></tr>
+    </thead>
+    <tbody>
+        <tr><td><code>MATCHED</code></td><td><strong>514</strong></td><td>Variance of exactly <strong>$0.00</strong>. Not "within tolerance" — nil.</td></tr>
+        <tr><td><code>INVESTIGATE</code></td><td><strong>18</strong></td><td>Variance above $1,000. These are the conversation.</td></tr>
+        <tr><td colspan="2"><strong>532 entity-periods</strong></td><td>Fourteen entities across thirty-eight complete months.</td></tr>
+    </tbody>
+</table>
+
+<p>Read the 514 first. Two independently produced numbers — one computed from 2,400,000 ledger lines
+through a rule set the tax team owns, one lodged with the ATO months or years ago — agree to the
+cent for 514 of 532 entity-periods. That is the evidence that the pipeline is right, and it is what
+makes the remaining 18 credible. A reconciliation that flags everything tells you nothing; this one
+flags 3.4% of periods and can defend the other 96.6%.</p>
+
+<div class="info-box"><span class="icon">💡</span><div><strong>This is the moment the pipeline pays for itself</strong><p>Every step so far was investment: conforming three ERPs, resolving entities, externalising the
+rules. This single query is the return. It answers <em>"is our lodged position defensible?"</em>
+across the whole group, at line-level granularity, in seconds — and it will answer it again
+tomorrow without anyone touching it. Ask the room how long that reconciliation takes them today,
+and for how many entities.</p></div></div>
+
+<h3>Block 2 — the adjustment lands</h3>
+
+<p>Now the realistic complication. Somebody in the business posts a backdated journal against a
+period that was lodged six months ago. They are not doing anything wrong: late invoices, accruals
+reversed, an intercompany correction. It happens constantly, and the tax team almost never hears
+about it.</p>
+
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- 1. Mark the moment. Everything before this timestamp is the ledger as it
+--    stood when the BAS was lodged. This is what makes the next step work:
+--    you are not guessing how long ago something happened, you named it.
+SET pre_adjustment = (SELECT CURRENT_TIMESTAMP());
+
+-- 2. A backdated AR adjustment against ENT001 (SAP company code 1010),
+--    dated into the month that closed six months ago. AR invoices are
+--    booked negative in SAP, so both amounts carry a minus sign.
+INSERT INTO RAW_DATA.ERP_SAP_GL
+    (BELNR, BUZEI, BUKRS, HKONT, BUDAT, DMBTR, MWSTS, WAERS, MWSKZ, LIFNR, DOC_TYPE, SGTXT)
+SELECT 'SAP9900001', 1, '1010', '400001',
+       TO_VARCHAR(DATEADD('month', -6, DATE_TRUNC('month', '2026-07-31'::DATE)), 'YYYYMMDD'),
+       -1500000.00, -150000.00, 'AUD', 'S1', 'SUP000001', 'AR_INVOICE',
+       'Backdated revenue adjustment - posted after BAS lodgement';
+
+-- 3. Force the Dynamic Table to pick it up now rather than waiting for
+--    its one-hour target lag. TARGET_LAG is a freshness objective;
+--    this is how you demand freshness immediately.
+ALTER DYNAMIC TABLE CURATED.GL_HARMONISED REFRESH;
+
+-- 4. Re-run the reconciliation for that entity and period only.
+SELECT ENTITY_NAME, TAX_PERIOD, COMPUTED_1A, LODGED_1A,
+       VARIANCE_NET, VARIANCE_PCT, RECON_STATUS
+FROM TAX.V_GST_VS_BAS
+WHERE ENTITY_ID  = 'ENT001'
+  AND TAX_PERIOD = DATEADD('month', -6, DATE_TRUNC('month', '2026-07-31'::DATE));</code></pre></div>
+
+<p>That entity-period was <code>MATCHED</code> at $0.00 four minutes ago. It is now
+<code>INVESTIGATE</code>, carrying roughly $150,000 of GST on sales that the lodged BAS does not
+contain. Nothing was recalculated by hand and no report was regenerated: one row landed in a raw
+table, the Dynamic Table refreshed, and the reconciliation told a different and correct story.</p>
+
+<div class="info-box warning"><span class="icon">⚠️</span><div><strong>The lodged figure has not changed — and cannot</strong><p>This is the distinction that matters to a tax practitioner. The BAS you lodged is a historical
+fact. The ledger underneath it is not: it keeps moving. Any reconciliation that recomputes from
+today's ledger and compares against a return lodged months ago will drift, and the drift is not an
+error — it is the adjustment. What you need is the ability to see both positions.</p></div></div>
+
+<h3>Block 3 — the as-lodged position, in one clause</h3>
+
+<p>The auditor's question is now live: <em>show me the ledger exactly as it stood when we
+lodged.</em> The answer is not a backup, a restore, a snapshot table somebody remembered to
+populate, or a ticket to IT. It is a clause.</p>
+
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>SELECT COUNT(*)                    AS LINES_AS_AT_THAT_MOMENT,
+       ROUND(SUM(BOOKED_TAX_AMOUNT), 2) AS BOOKED_TAX_AS_LODGED
+FROM CURATED.GL_HARMONISED AT(TIMESTAMP =&gt; $pre_adjustment)
+WHERE ENTITY_ID  = 'ENT001'
+  AND TAX_PERIOD = DATEADD('month', -6, DATE_TRUNC('month', '2026-07-31'::DATE));</code></pre></div>
+
+<p>That is the ledger as it stood at the moment you named, before the adjustment existed. The row count is one lower and the booked tax total is the as-lodged figure &mdash; the number that ties to the BAS.</p>
+<p>Three ways to name a point in time. <code>AT(TIMESTAMP =&gt; ...)</code> is the one to reach for: you captured <code>$pre_adjustment</code> before you posted anything, so the query means exactly what it says regardless of how long the lab takes. <code>AT(OFFSET =&gt; -3600)</code> counts seconds back from now, which sounds convenient and is the classic trap &mdash; if the object is younger than the offset, or you pause for coffee between cells, it either errors or silently returns the wrong moment. <code>BEFORE(STATEMENT =&gt; '&lt;query_id&gt;')</code> is the most precise of the three: the state immediately before one specific statement, which is what you want when an auditor asks about one specific posting.</p>
+
+<p>Notice what you did <strong>not</strong> do: you did not restore a database, you did not stand
+up a copy, you did not go looking for last quarter's extract, and you did not ask anyone's
+permission. You added eighteen characters to a query you already had.</p>
+
+<h3>Block 4 — freeze the evidence, then break it and get it back</h3>
+
+<p>Time Travel answers the question in the moment. The auditor wants something they can come back
+to next month, so freeze it: a clone of the ledger as it stood before the adjustment, named for the
+date it was taken, in a schema that exists for exactly this purpose.</p>
+
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- An immutable, named snapshot of the whole 2,400,000-line ledger
+-- as it stood at the moment before the adjustment was posted.
+CREATE TABLE AUDIT.GL_AS_LODGED_20260803 CLONE CURATED.GL_HARMONISED AT(TIMESTAMP =&gt; $pre_adjustment);
+
+SELECT COUNT(*) AS SNAPSHOT_LINES FROM AUDIT.GL_AS_LODGED_20260803;
+
+-- Now the accident everybody has had. Wrong window, wrong object.
+DROP TABLE AUDIT.GL_AS_LODGED_20260803;
+
+-- And the recovery. Within the retention window, one word.
+UNDROP TABLE AUDIT.GL_AS_LODGED_20260803;
+
+SELECT COUNT(*) AS STILL_HERE FROM AUDIT.GL_AS_LODGED_20260803;</code></pre></div>
+
+<div class="info-box success"><span class="icon">⚡</span><div><strong>Zero-copy cloning — what just happened, and what it cost</strong><p>You took an immutable snapshot of a <strong>2,400,000-row ledger</strong>. It completed instantly
+and it consumed <strong>no storage</strong>, because a clone copies metadata rather than data — the
+two objects share the same underlying micro-partitions until one of them diverges, and you pay only
+for what subsequently changes. Ask the room what that operation would cost them today: how long to
+extract 2.4 million rows, where it would be written, who would approve the disk, and who would
+remember it exists in eighteen months when the audit actually lands. Then let the silence do the
+work.</p></div></div>
+
+<p>The wider point is that none of this required a backup strategy, a restore procedure, or a
+conversation with IT. There was no data protection design decision to make in advance, no retention
+policy to negotiate, and no recovery runbook to test. Time Travel, cloning and <code>UNDROP</code>
+are properties of the platform — they are true of every table in the account, whether or not anybody
+planned for them.</p>
+
+<h3>Block 5 — the visual close, with no new SQL</h3>
+
+<p>Re-run the reconciliation, then read it as a picture rather than a grid. There is no charting
+library to install and no new query to write.</p>
+
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>SELECT ENTITY_NAME,
+       ROUND(SUM(ABS(VARIANCE_NET)), 2) AS TOTAL_ABS_VARIANCE
+FROM TAX.V_GST_VS_BAS
+GROUP BY ENTITY_NAME
+ORDER BY TOTAL_ABS_VARIANCE DESC;</code></pre></div>
+
+<ol>
+    <li>Run the query and wait for the grid to appear.</li>
+    <li>Click the <strong>Chart</strong> tab, immediately beside <strong>Results</strong> above the
+        output pane.</li>
+    <li>Set the chart type to <strong>Bar</strong> in the panel on the right.</li>
+    <li>Set the X axis to <code>ENTITY_NAME</code> and the Y axis to
+        <code>TOTAL_ABS_VARIANCE</code>.</li>
+</ol>
+
+<p>The distribution is the finding. Variance is not spread evenly across the group — it concentrates
+in a handful of entities, and those are where the tax team should spend its week. This is the chart
+you put in front of the client, built from a query you were running anyway, and it takes four
+clicks.</p>
+
+<div class="info-box"><span class="icon">🔑</span><div><strong>Why this matters more than it looks</strong><p>Most analysis dies between the query and the audience. A number in a results grid is not a
+finding until somebody can see the shape of it. That the platform charts a result set without a
+tool, an export or a licence means the distance from question to defensible picture is measured in
+clicks — and the optional Streamlit step turns the same two views into a shareable application
+without leaving Snowflake.</p></div></div>
+
+<h3>What you built</h3>
+
+<table class="data-table">
+    <thead>
+        <tr><th>Object</th><th>Type</th><th>Rows</th><th>Purpose</th></tr>
+    </thead>
+    <tbody>
+        <tr><td><code>RAW_DATA.ERP_SAP_GL</code></td><td>TABLE</td><td>1,200,000</td><td>SAP general ledger, as landed.</td></tr>
+        <tr><td><code>RAW_DATA.ERP_ORACLE_GL</code></td><td>TABLE</td><td>800,000</td><td>Oracle general ledger, as landed.</td></tr>
+        <tr><td><code>RAW_DATA.ERP_LEGACY_AP</code></td><td>TABLE</td><td>400,000</td><td>Legacy AP system, text dates, GST-inclusive amounts.</td></tr>
+        <tr><td><code>RAW_DATA.DIM_LEGAL_ENTITY</code></td><td>TABLE</td><td>14</td><td>Group entities and the three ERP identifier schemes.</td></tr>
+        <tr><td><code>RAW_DATA.DIM_ACCOUNT_MAPPING</code></td><td>TABLE</td><td>180</td><td>Native account code to group account and supply category.</td></tr>
+        <tr><td><code>RAW_DATA.DIM_SUPPLIER</code></td><td>TABLE</td><td>2,000</td><td>Supplier ABN, GST registration and country.</td></tr>
+        <tr><td><code>RAW_DATA.FCT_BAS_LODGED</code></td><td>TABLE</td><td>532</td><td>What was actually lodged with the ATO.</td></tr>
+        <tr><td><code>RAW_DATA.DOC_TAX_INVOICE</code></td><td>TABLE</td><td>300</td><td>Unstructured invoice text — Lab 2 uses this.</td></tr>
+        <tr><td><code>TAX.TAX_RULE_DETERMINATION</code></td><td>TABLE</td><td>16</td><td>The decision table: <em>the first rule set of many — see the end of Step 4</em>.</td></tr>
+        <tr><td><code>TAX.TAX_RULE_RATE</code></td><td>TABLE</td><td>19</td><td>Effective-dated rates, part of the same rules layer.</td></tr>
+        <tr><td><code>CURATED.GL_HARMONISED</code></td><td><strong>DYNAMIC TABLE</strong></td><td>2,400,000</td><td>One governed ledger. No tax logic. Keeps itself current.</td></tr>
+        <tr><td><code>TAX.V_GST_DETERMINED</code></td><td>VIEW</td><td>2,400,000</td><td>Treatment, rate and variance per line, with rule lineage.</td></tr>
+        <tr><td><code>TAX.V_GST_VS_BAS</code></td><td>VIEW</td><td>532</td><td>Computed against lodged, by entity and period.</td></tr>
+        <tr><td><code>TAX.V_GST_EXCEPTIONS</code></td><td>VIEW</td><td>253,394</td><td>Risk-ranked exception register, seven rules.</td></tr>
+    </tbody>
+</table>
+
+<p>Four objects of your own creation on top of the source data, one of which is a Dynamic Table and
+three of which are views — and a reconciliation that ties to the cent for 514 of 532
+entity-periods. There are three optional steps below: a Streamlit control tower over these two
+views, a scenario-modelling exercise on a cloned database, and a secure share of the audit snapshot.
+Lab 2 takes the same objects into Cortex AI — classification, extraction and a Cortex Agent your
+client can ask questions of in English.</p>
+
+<div class="info-box warning"><span class="icon">⚠️</span><div><strong>There is deliberately no cleanup in Lab 1</strong><p>Do not drop <code>GSI_TAX_WORKSHOP</code> or any object inside it. Lab 2 builds directly on
+<code>CURATED.GL_HARMONISED</code>, <code>TAX.V_GST_DETERMINED</code>,
+<code>TAX.V_GST_VS_BAS</code> and <code>TAX.V_GST_EXCEPTIONS</code>. The only thing the optional
+steps create and then remove is the scenario database in Step 7, which is dropped inside that step
+because it exists purely to be thrown away.</p></div></div>

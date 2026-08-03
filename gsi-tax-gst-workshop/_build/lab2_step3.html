@@ -1,0 +1,186 @@
+<p>Classification answers "what kind of supply is this?". It does not answer "does this document
+actually support the credit we claimed?" That question is answered by specific facts printed on the
+invoice — the supplier's ABN and the GST charged — and those facts are sitting in a free-text
+remarks field that no report has ever read.</p>
+
+<ul class="learning-list">
+    <li>Pull two named values out of unstructured text with <code>EXTRACT_ANSWER</code>.</li>
+    <li>Reconcile the extracted ABN against the supplier master.</li>
+    <li>Quantify the input tax credit at risk where no ABN exists anywhere.</li>
+</ul>
+
+<div class="info-box"><span class="icon">🇦🇺</span><div><strong>The Australian rule this step tests</strong><p>For a taxable supply of more than <strong>$82.50</strong> including GST, a recipient claiming an
+input tax credit must hold a valid tax invoice, and that invoice must show the
+<strong>supplier's ABN</strong>. No ABN means no valid tax invoice, and no valid tax invoice means
+<strong>no input tax credit</strong> — regardless of whether the expense was genuine, the money was
+paid or the GST was charged. It is one of the most mechanical findings in a GST review and one of the
+most commonly missed, because the ABN is on a piece of paper and the claim is in a database.</p></div></div>
+
+<h3>Block 1 — two questions, asked of the same text</h3>
+
+<p><code>EXTRACT_ANSWER</code> takes a document and a question in plain English. It is not a regular
+expression: it does not need to know that an ABN is eleven digits in a 2-3-3-3 grouping, and it does
+not break when the surrounding sentence is phrased differently.</p>
+
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>WITH doc_sample AS (
+    SELECT DOC_ID, SOURCE_SYSTEM, SOURCE_DOC_REF, SUPPLIER_REMARKS
+    FROM RAW_DATA.DOC_TAX_INVOICE
+    LIMIT 10
+)
+SELECT
+    DOC_ID,
+    SUPPLIER_REMARKS,
+    SNOWFLAKE.CORTEX.EXTRACT_ANSWER(
+        SUPPLIER_REMARKS,
+        'What is the supplier ABN?'
+    )[0]:answer::VARCHAR AS EXTRACTED_ABN,
+    SNOWFLAKE.CORTEX.EXTRACT_ANSWER(
+        SUPPLIER_REMARKS,
+        'What GST amount is stated on this invoice?'
+    )[0]:answer::VARCHAR AS EXTRACTED_GST_TEXT
+FROM doc_sample;</code></pre></div>
+
+<p>The ABN column fills in cleanly wherever the remarks contain one. The GST column is the more
+instructive of the two, and it is worth pausing on rather than skipping past.</p>
+
+<p>Roughly two thirds of these documents say <em>"GST included in the total shown"</em> — which is a
+perfectly valid statement under Australian GST law and is <strong>not a number</strong>. So the
+extraction returns a fragment of that phrase, or the ABN digits it found nearby, rather than an
+amount. That is the model behaving correctly on text that does not contain the answer, and the
+reviewer's conclusion is the right one: where the invoice states GST as included rather than stated,
+you fall back to the GST fraction — one eleventh of the GST-inclusive total — and you record that
+you did. An extraction that returns nothing usable is a finding about the document, not a failure of
+the tool.</p>
+
+<div class="info-box warning"><span class="icon">⚠️</span><div><strong>Do not treat extracted text as trusted numeric input</strong><p><code>EXTRACT_ANSWER</code> returns a string, and a string that looks like a number is not a
+number. Wrap every numeric conversion in <code>TRY_TO_NUMBER</code> so an unparseable answer arrives
+as <code>NULL</code> and can be counted, exactly as <code>TRY_TO_DATE</code> handled the unparseable
+legacy dates in Lab 1. Same principle, different data type: tolerate the bad value, record that it
+was bad, never let it stop the query.</p></div></div>
+
+<h3>Block 2 — the extraction as a queryable object</h3>
+
+<p>The view below extracts both fields across all 300 documents, normalises the ABN for comparison
+by stripping every non-digit character from both sides, and attaches the ledger's own view of the
+same document: the supplier master ABN and the tax actually booked. Because one document reference
+can carry several ledger lines, the booked tax is aggregated per document <strong>before</strong> the
+join, so no document is counted twice.</p>
+
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>CREATE OR REPLACE VIEW AI_INSIGHTS.V_AI_DOC_EXTRACTED AS
+WITH extracted AS (
+    SELECT
+        d.DOC_ID,
+        d.SOURCE_SYSTEM,
+        d.SOURCE_DOC_REF,
+        d.SUPPLIER_ID,
+        d.SUPPLIER_REMARKS,
+        SNOWFLAKE.CORTEX.EXTRACT_ANSWER(
+            d.SUPPLIER_REMARKS, 'What is the supplier ABN?'
+        )[0]:answer::VARCHAR AS EXTRACTED_ABN_RAW,
+        SNOWFLAKE.CORTEX.EXTRACT_ANSWER(
+            d.SUPPLIER_REMARKS, 'What GST amount is stated on this invoice?'
+        )[0]:answer::VARCHAR AS EXTRACTED_GST_RAW
+    FROM RAW_DATA.DOC_TAX_INVOICE d
+),
+doc_tax AS (
+    -- Aggregate to one row per document BEFORE joining, so a multi-line
+    -- document cannot fan out and double-count the tax.
+    SELECT SOURCE_SYSTEM, SOURCE_DOC_REF,
+           SUM(NET_AMOUNT)        AS DOC_NET_AMOUNT,
+           SUM(BOOKED_TAX_AMOUNT) AS BOOKED_TAX_AMOUNT,
+           SUM(GROSS_AMOUNT)      AS DOC_GROSS_AMOUNT,
+           MAX(DOC_TYPE)          AS DOC_TYPE,
+           MAX(ENTITY_NAME)       AS ENTITY_NAME,
+           MAX(TAX_PERIOD)        AS TAX_PERIOD,
+           BOOLOR_AGG(RECOVERABLE) AS RECOVERABLE
+    FROM TAX.V_GST_DETERMINED
+    GROUP BY SOURCE_SYSTEM, SOURCE_DOC_REF
+)
+SELECT
+    x.DOC_ID,
+    x.SOURCE_SYSTEM,
+    x.SOURCE_DOC_REF,
+    x.SUPPLIER_ID,
+    s.SUPPLIER_NAME,
+    t.ENTITY_NAME,
+    t.TAX_PERIOD,
+    t.DOC_TYPE,
+    t.RECOVERABLE,
+    x.SUPPLIER_REMARKS,
+    x.EXTRACTED_ABN_RAW,
+    x.EXTRACTED_GST_RAW,
+    -- Strip everything that is not a digit from BOTH sides so the
+    -- comparison is not defeated by spacing conventions.
+    REGEXP_REPLACE(COALESCE(x.EXTRACTED_ABN_RAW, ''), '[^0-9]', '') AS EXTRACTED_ABN_DIGITS,
+    REGEXP_REPLACE(COALESCE(s.SUPPLIER_ABN,      ''), '[^0-9]', '') AS MASTER_ABN_DIGITS,
+    TRY_TO_NUMBER(REGEXP_REPLACE(COALESCE(x.EXTRACTED_GST_RAW, ''), '[^0-9.]', '')) AS EXTRACTED_GST_AMOUNT,
+    t.DOC_NET_AMOUNT,
+    t.DOC_GROSS_AMOUNT,
+    t.BOOKED_TAX_AMOUNT,
+    -- The fallback every reviewer uses when the invoice states GST as
+    -- included rather than stated: one eleventh of the GST-inclusive total.
+    ROUND(COALESCE(t.DOC_GROSS_AMOUNT, 0) / 11, 2)                  AS GST_FRACTION_AMOUNT,
+    (LENGTH(REGEXP_REPLACE(COALESCE(x.EXTRACTED_ABN_RAW, ''), '[^0-9]', '')) = 11) AS HAS_ABN_ON_INVOICE,
+    (s.SUPPLIER_ABN IS NULL)                                        AS MASTER_ABN_MISSING
+FROM extracted x
+LEFT JOIN RAW_DATA.DIM_SUPPLIER s ON s.SUPPLIER_ID = x.SUPPLIER_ID
+LEFT JOIN doc_tax t
+       ON t.SOURCE_SYSTEM  = x.SOURCE_SYSTEM
+      AND t.SOURCE_DOC_REF = x.SOURCE_DOC_REF;</code></pre></div>
+
+<p>Two things in that statement are worth carrying into your own work. The ABN comparison strips
+non-digits from both the extracted value and the master value, because <code>75 370 698 317</code>
+and <code>75370698317</code> are the same ABN and a naive string comparison says they are not. And
+<code>HAS_ABN_ON_INVOICE</code> tests for exactly eleven digits rather than for a non-empty string,
+so a partial extraction does not register as a valid ABN.</p>
+
+<h3>Block 3 — one query, three findings</h3>
+
+<p>Three separate questions, three separate reports and three separate meetings is how this work
+usually gets done. It fits in one result set.</p>
+
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>SELECT
+    COUNT(*)                                                     AS DOCS_REVIEWED,
+
+    -- Finding 1: the invoice shows an ABN, and it is not the supplier's.
+    COUNT_IF(HAS_ABN_ON_INVOICE
+             AND MASTER_ABN_DIGITS &lt;&gt; ''
+             AND EXTRACTED_ABN_DIGITS &lt;&gt; MASTER_ABN_DIGITS)      AS ABN_MISMATCH_DOCS,
+
+    -- Finding 2: the invoice states a GST amount that does not agree with
+    -- the tax the ledger booked, beyond a one dollar rounding tolerance.
+    COUNT_IF(EXTRACTED_GST_AMOUNT IS NOT NULL
+             AND ABS(EXTRACTED_GST_AMOUNT - COALESCE(BOOKED_TAX_AMOUNT, 0)) &gt; 1.00)
+                                                                 AS GST_MISMATCH_DOCS,
+
+    -- Finding 3: no ABN on the invoice AND none in the supplier master.
+    -- On a recoverable AP invoice over $82.50 there is no valid tax
+    -- invoice, so there is no input tax credit.
+    COUNT_IF(NOT HAS_ABN_ON_INVOICE AND MASTER_ABN_MISSING)       AS NO_ABN_ANYWHERE_DOCS,
+    ROUND(SUM(CASE WHEN NOT HAS_ABN_ON_INVOICE
+                    AND MASTER_ABN_MISSING
+                    AND RECOVERABLE
+                    AND DOC_TYPE = 'AP_INVOICE'
+                    AND COALESCE(DOC_GROSS_AMOUNT, 0) &gt; 82.50
+                   THEN COALESCE(BOOKED_TAX_AMOUNT, 0) ELSE 0 END), 2)
+                                                                 AS ITC_AT_RISK_AUD
+FROM AI_INSIGHTS.V_AI_DOC_EXTRACTED;</code></pre></div>
+
+<p>One row, and every column on it is a conversation with a client. An ABN on the invoice that does
+not match the supplier master is either a master data error or a supplier you are not actually
+transacting with. A stated GST amount that disagrees with the booked tax is a posting error on a
+document you hold the evidence for. And <code>ITC_AT_RISK_AUD</code> is the number that ends the
+discussion: credits claimed where no valid tax invoice can be produced, in dollars, from the primary
+evidence rather than from an assertion.</p>
+
+<div class="info-box warning"><span class="icon">📄</span><div><strong>Read the $82.50 condition carefully</strong><p>The exposure calculation is deliberately narrow: recoverable AP invoices only, over the $82.50
+threshold only, and only where the ABN is absent from <strong>both</strong> the invoice and the
+supplier master. Each of those conditions removes a class of false positive — an AR invoice you
+issued, a low-value acquisition below the threshold, a supplier whose ABN you already hold on file.
+A number a client cannot argue with is worth more than a bigger number they can.</p></div></div>
+
+<div class="info-box success"><span class="icon">🎯</span><div><strong>The teaching point — the invoice is the primary evidence</strong><p>In an audit, the ledger is a claim and the invoice is the evidence for it. Until this step your
+pipeline could interrogate the claim in 2.4 million rows and could not read a single piece of
+evidence, so every ABN and GST-amount test was a manual sample of a filing cabinet. It is now a
+query — over the same governed data, joined to the same supplier master, in the same warehouse. The
+text was always there. What changed is that it became queryable.</p></div></div>

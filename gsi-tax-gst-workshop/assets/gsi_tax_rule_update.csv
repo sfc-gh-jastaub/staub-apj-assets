@@ -1,0 +1,4 @@
+RULE_ID,PRIORITY,JURISDICTION,SUPPLY_CATEGORY,SUPPLIER_GST_REGISTERED,IS_CROSS_BORDER,TAX_TREATMENT,RECOVERABLE,VALID_FROM,VALID_TO,RULE_DESCRIPTION
+17,20,AU,STANDARD_GOODS,FALSE,TRUE,REVERSE_CHARGE,TRUE,2026-10-01,9999-12-31,Imported standard goods from an unregistered offshore supplier - reverse charge applies from 1 Oct 2026
+18,20,AU,CAPITAL_EQUIPMENT,FALSE,TRUE,REVERSE_CHARGE,TRUE,2026-10-01,9999-12-31,Imported capital equipment from an unregistered offshore supplier - reverse charge applies from 1 Oct 2026
+19,40,AU,STANDARD_GOODS,FALSE,TRUE,TAXABLE,TRUE,2000-07-01,2026-09-30,Superseded - imported standard goods treated as ordinary taxable supply until 30 Sep 2026

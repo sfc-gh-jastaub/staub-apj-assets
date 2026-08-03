@@ -1,0 +1,145 @@
+<p>Your agent answers questions about the group GST position because it has one tool: an Analyst
+tool over <code>AGENTS.SV_GST_COMPLIANCE</code>. Ask it something that semantic view cannot
+express — <em>which suppliers are the riskiest to keep claiming credits from?</em> — and it will
+do its best with the dimensions it has, which is not the same as answering the question.</p>
+
+<p>Give it a second tool and it stops guessing. But a second tool only helps if the agent can
+tell which of the two to reach for.</p>
+
+<ul class="learning-list">
+    <li>Build a supplier-risk view scoped to the question a second tool should answer.</li>
+    <li>Attach it as a second Analyst tool on the existing agent.</li>
+    <li>Write tool descriptions that make the routing decision unambiguous.</li>
+</ul>
+
+<h3>Block 1 — the supplier-risk view</h3>
+
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>CREATE OR REPLACE VIEW AGENTS.V_SUPPLIER_RISK AS
+WITH ledger AS (
+    -- One row per supplier: what we buy from them and what it is worth.
+    SELECT SUPPLIER_ID,
+           SUPPLIER_NAME,
+           SUPPLIER_COUNTRY,
+           SUPPLIER_GST_REGISTERED,
+           SUPPLIER_ABN,
+           COUNT(*)                                              AS LINE_COUNT,
+           COUNT(DISTINCT ENTITY_ID)                             AS ENTITIES_TRANSACTING,
+           MIN(TAX_PERIOD)                                       AS FIRST_PERIOD,
+           MAX(TAX_PERIOD)                                       AS LAST_PERIOD,
+           SUM(NET_AMOUNT)                                       AS NET_AMOUNT,
+           SUM(BOOKED_TAX_AMOUNT)                                AS BOOKED_TAX_AMOUNT,
+           SUM(EXPECTED_TAX_AMOUNT)                              AS EXPECTED_TAX_AMOUNT,
+           SUM(IFF(RECOVERABLE AND DOC_TYPE = 'AP_INVOICE',
+                   EXPECTED_TAX_AMOUNT, 0))                      AS CREDITS_CLAIMED,
+           SUM(IFF(IS_CROSS_BORDER, 1, 0))                       AS CROSS_BORDER_LINES
+    FROM TAX.V_GST_DETERMINED
+    GROUP BY ALL
+),
+exceptions AS (
+    SELECT SUPPLIER_ID,
+           COUNT(*)                                              AS EXCEPTION_LINES,
+           SUM(IFF(MAX_SEVERITY = 'HIGH', 1, 0))                 AS HIGH_SEVERITY_LINES,
+           SUM(ABS(COALESCE(TAX_VARIANCE, 0)))                   AS ABS_TAX_VARIANCE,
+           LISTAGG(DISTINCT EXCEPTION_CODES, ', ')               AS EXCEPTION_CODE_MIX
+    FROM TAX.V_GST_EXCEPTIONS
+    GROUP BY SUPPLIER_ID
+)
+SELECT
+    l.SUPPLIER_ID,
+    l.SUPPLIER_NAME,
+    l.SUPPLIER_COUNTRY,
+    l.SUPPLIER_GST_REGISTERED,
+    (l.SUPPLIER_ABN IS NULL)                                     AS ABN_MISSING,
+    l.ENTITIES_TRANSACTING,
+    l.FIRST_PERIOD,
+    l.LAST_PERIOD,
+    l.LINE_COUNT,
+    l.CROSS_BORDER_LINES,
+    l.NET_AMOUNT,
+    l.BOOKED_TAX_AMOUNT,
+    l.EXPECTED_TAX_AMOUNT,
+    l.CREDITS_CLAIMED,
+    COALESCE(e.EXCEPTION_LINES, 0)                               AS EXCEPTION_LINES,
+    COALESCE(e.HIGH_SEVERITY_LINES, 0)                           AS HIGH_SEVERITY_LINES,
+    COALESCE(e.ABS_TAX_VARIANCE, 0)                              AS ABS_TAX_VARIANCE,
+    e.EXCEPTION_CODE_MIX,
+    ROUND(100.0 * COALESCE(e.EXCEPTION_LINES, 0) / l.LINE_COUNT, 2)
+                                                                 AS PCT_LINES_EXCEPTED,
+    -- Credit exposure: what we have claimed from a supplier we cannot
+    -- substantiate a claim against, because there is no ABN on file.
+    IFF(l.SUPPLIER_ABN IS NULL, l.CREDITS_CLAIMED, 0)            AS UNSUBSTANTIATED_CREDITS,
+    CASE WHEN l.SUPPLIER_ABN IS NULL AND l.CREDITS_CLAIMED &gt; 0        THEN 'HIGH'
+         WHEN NOT l.SUPPLIER_GST_REGISTERED AND l.BOOKED_TAX_AMOUNT &lt;&gt; 0 THEN 'HIGH'
+         WHEN COALESCE(e.HIGH_SEVERITY_LINES, 0) &gt; 0                  THEN 'MEDIUM'
+         WHEN COALESCE(e.EXCEPTION_LINES, 0) &gt; 0                      THEN 'LOW'
+         ELSE 'NONE'
+    END                                                          AS SUPPLIER_RISK_BAND
+FROM ledger l
+LEFT JOIN exceptions e ON e.SUPPLIER_ID = l.SUPPLIER_ID;</code></pre></div>
+
+<p>Two thousand rows, one per supplier, and every column answers a question a tax person would
+actually ask about a counterparty: how much we buy, how much we have claimed, whether we hold
+the ABN that entitles us to claim it, and how often lines from this supplier end up in the
+register. <code>UNSUBSTANTIATED_CREDITS</code> is the number that gets attention — input tax
+credits claimed where no ABN is held anywhere in the group.</p>
+
+<h3>Attach it as a second Analyst tool</h3>
+
+<p>Build a semantic view over <code>AGENTS.V_SUPPLIER_RISK</code> the same way you built the
+first one (<strong>AI &amp; ML &rarr; Cortex Analyst &rarr; Create new</strong>), name it
+<code>SV_SUPPLIER_RISK</code>, and take the Autopilot suggestions: supplier, country,
+registration status and risk band as dimensions; line count, net amount, credits claimed,
+unsubstantiated credits and exception lines as metrics. Then open
+<strong>AI &amp; ML &rarr; Agents</strong>, edit <code>GST_COMPLIANCE_AGENT</code> and add a
+second Analyst tool pointing at it.</p>
+
+<p>Add the synonyms while you are in the semantic view. A tax person types "vendor", not
+<code>SUPPLIER_NAME</code>, and asks about "unsubstantiated credits" or "credits at risk", not
+<code>UNSUBSTANTIATED_CREDITS</code>. The synonyms are what make the tool usable by the person
+who has the question.</p>
+
+<h3>How the agent decides which tool to use</h3>
+
+<p>There is no routing table and nothing to configure. The agent reads the description of each
+tool, compares it against what the user asked, and picks. That makes the description the whole
+mechanism — it is the only thing standing between a well-formed question and an answer drawn
+from the wrong data.</p>
+
+<table class="data-table">
+    <thead>
+        <tr><th>Tool</th><th>Description to give it</th><th>Questions it should win</th></tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td><code>SV_GST_COMPLIANCE</code></td>
+            <td>The group GST position by legal entity, tax period, supply category and tax treatment, including computed GST, GST lodged on the BAS, the variance between them and exception counts. Use for questions about periods, returns, reconciliation and the group position.</td>
+            <td>"Net GST by entity for the last six months." "Compare computed GST to what we lodged."</td>
+        </tr>
+        <tr>
+            <td><code>SV_SUPPLIER_RISK</code></td>
+            <td>One row per supplier covering spend, input tax credits claimed, whether an ABN is held, GST registration status, cross-border lines and a supplier risk band. Use for questions about individual suppliers, vendors or counterparties and the credits claimed from them.</td>
+            <td>"Which suppliers are missing an ABN on claimed credits?" "Who are our riskiest vendors?"</td>
+        </tr>
+    </tbody>
+</table>
+
+<p>Try three questions in the agent and watch which tool it names in its reasoning. <em>What was
+our net GST last quarter?</em> should take the compliance tool. <em>Which suppliers have we
+claimed credits from without an ABN?</em> should take the supplier tool. Then ask
+<em>which entities are claiming credits from unregistered suppliers?</em> — that spans both, and
+the agent will either query one and reason from it or call both in sequence. Read what it says
+it did rather than assuming.</p>
+
+<div class="info-box warning"><span class="icon">⚠️</span><div><strong>Vague descriptions are the failure mode, not vague questions</strong><p>Describe both tools as "GST data" and the agent has nothing to choose on. It will pick one,
+answer confidently and give an answer that is wrong in a way nobody can see, because the numbers
+will be real numbers from a real view — just not the view that could answer the question. Write
+each description as the boundary of what the tool covers, name the grain out loud ("one row per
+supplier", "by entity and tax period"), and say which kinds of question belong to it. If two
+descriptions could plausibly answer the same question, the tools are wrongly cut and you should
+fix the split rather than the wording.</p></div></div>
+
+<div class="info-box"><span class="icon">💡</span><div><strong>Two tools, one governed source</strong><p>Both semantic views resolve to <code>TAX.V_GST_DETERMINED</code> and therefore to the same
+rule tables and the same conformed ledger. That is what stops the second tool becoming a second
+version of the truth: a supplier's credits reconcile to the entity's return because they are the
+same lines, aggregated differently. Adding tools widens what the agent can be asked. It must
+never widen what the group considers to be the answer.</p></div></div>

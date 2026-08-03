@@ -1,0 +1,192 @@
+<p>Supply category drives tax treatment. In Lab 1 it arrived through a join to
+<code>DIM_ACCOUNT_MAPPING</code>, which means it is really a property of the general ledger account
+somebody chose at data entry — a judgement made in seconds, by a person who is not in the tax team,
+against a chart of accounts they did not design. That is where miscoding is born, and no amount of
+rule logic downstream can detect it, because the rules faithfully apply the correct treatment to the
+wrong category.</p>
+
+<ul class="learning-list">
+    <li>Read the invoice narrative that has been sitting unused since Lab 1.</li>
+    <li>Have a language model classify the supply from that narrative in one function call.</li>
+    <li>Compare what the AI read against what the ledger booked, and find the disagreements.</li>
+    <li>Push the findings into the exception register the tax team already works from.</li>
+</ul>
+
+<h3>Block 1 — the narrative, the booking and the AI verdict in one grid</h3>
+
+<p>Three columns: what the supplier wrote, what the ledger recorded, and what the model concluded.
+Where columns two and three disagree, you are looking at a candidate miscoding — and you are
+looking at it without having written a single rule about what a client dinner is.</p>
+
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- The LIMIT sits INSIDE the CTE so it bounds the rows fed to the model,
+-- not just the rows displayed. This matters: AI cost scales with rows.
+WITH doc_sample AS (
+    SELECT DOC_ID, SOURCE_SYSTEM, SOURCE_DOC_REF,
+           INVOICE_NARRATIVE, BOOKED_SUPPLY_CATEGORY
+    FROM RAW_DATA.DOC_TAX_INVOICE
+    LIMIT 10
+)
+SELECT
+    DOC_ID,
+    INVOICE_NARRATIVE,
+    BOOKED_SUPPLY_CATEGORY,
+    AI_CLASSIFY(
+        INVOICE_NARRATIVE,
+        ['taxable supply','GST-free supply','input taxed supply',
+         'export','entertainment','capital acquisition']
+    ):labels[0]::VARCHAR AS AI_SUPPLY_CATEGORY
+FROM doc_sample;</code></pre></div>
+
+<p>Read across the rows. <em>"Monthly external audit and assurance fees for the year ended 30
+June"</em> returns <code>taxable supply</code>. <em>"Forklift purchase, capitalised to plant and
+equipment"</em> returns <code>capital acquisition</code>. <em>"Sea freight Melbourne to Auckland,
+export consignment, FOB terms"</em> returns <code>export</code>. No prompt engineering, no training
+data, no model to host — one function, a list of your six categories, and the answer arrives as
+structured JSON you can index into.</p>
+
+<div class="info-box"><span class="icon">🔑</span><div><strong>The syntax, once, because you will reuse it</strong><p><code>AI_CLASSIFY</code> returns an object, not a string. <code>:labels[0]</code> takes the first
+label from the returned array and <code>::VARCHAR</code> casts it to text so it can be compared,
+grouped and joined like any other column. That cast is what turns a model output into a database
+column — and once it is a column, everything you already know about SQL applies to it.</p></div></div>
+
+<div class="info-box warning"><span class="icon">💰</span><div><strong>Why this table has 300 rows and not 2,400,000</strong><p><code>DOC_TAX_INVOICE</code> holds <strong>300 documents</strong>, not the 2.4 million lines in the
+ledger, and that is a deliberate design decision rather than a shortcut for the workshop. Language
+model cost scales linearly with rows: running a classifier across the full ledger would cost
+thousands of times what this step costs and tell you almost nothing extra. In production you
+classify <strong>on arrival</strong> — each document once, as it lands — not retrospectively across
+the whole ledger every time somebody wants a report. Say this out loud to a client before they ask,
+because they will ask, and the answer is much stronger offered than extracted.</p></div></div>
+
+<h3>Block 2 — make it a view so the rest of the lab can join to it</h3>
+
+<p>The classification is only useful if it is an object. The view below applies it across all 300
+documents and adds the one column that turns an observation into a finding: a flag comparing what
+the AI read to what the ledger booked. The <code>CASE</code> expression exists because the two
+vocabularies differ — the ledger uses eleven account-level categories, the classifier uses the six
+tax-relevant ones — so the booked category is mapped onto the classifier's vocabulary before the
+comparison is made.</p>
+
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>CREATE OR REPLACE VIEW AI_INSIGHTS.V_AI_SUPPLY_CLASSIFIED AS
+WITH classified AS (
+    SELECT
+        d.DOC_ID,
+        d.SOURCE_SYSTEM,
+        d.SOURCE_DOC_REF,
+        d.SUPPLIER_ID,
+        d.INVOICE_NARRATIVE,
+        d.BOOKED_SUPPLY_CATEGORY,
+        AI_CLASSIFY(
+            d.INVOICE_NARRATIVE,
+            ['taxable supply','GST-free supply','input taxed supply',
+             'export','entertainment','capital acquisition']
+        ):labels[0]::VARCHAR AS AI_SUPPLY_CATEGORY
+    FROM RAW_DATA.DOC_TAX_INVOICE d
+)
+SELECT
+    c.*,
+    -- Map the ledger's account-level category onto the classifier's
+    -- tax-relevant vocabulary so the two can be compared at all.
+    CASE c.BOOKED_SUPPLY_CATEGORY
+        WHEN 'ENTERTAINMENT'     THEN 'entertainment'
+        WHEN 'CAPITAL_EQUIPMENT' THEN 'capital acquisition'
+        WHEN 'EXPORT_SALES'      THEN 'export'
+        WHEN 'RESIDENTIAL_RENT'  THEN 'input taxed supply'
+        WHEN 'FINANCIAL_SUPPLY'  THEN 'input taxed supply'
+        WHEN 'FOOD_BASIC'        THEN 'GST-free supply'
+        WHEN 'MEDICAL'           THEN 'GST-free supply'
+        WHEN 'EDUCATION'         THEN 'GST-free supply'
+        ELSE 'taxable supply'
+    END                                                    AS BOOKED_EQUIVALENT,
+    (AI_SUPPLY_CATEGORY IS NOT NULL
+     AND AI_SUPPLY_CATEGORY &lt;&gt; CASE c.BOOKED_SUPPLY_CATEGORY
+        WHEN 'ENTERTAINMENT'     THEN 'entertainment'
+        WHEN 'CAPITAL_EQUIPMENT' THEN 'capital acquisition'
+        WHEN 'EXPORT_SALES'      THEN 'export'
+        WHEN 'RESIDENTIAL_RENT'  THEN 'input taxed supply'
+        WHEN 'FINANCIAL_SUPPLY'  THEN 'input taxed supply'
+        WHEN 'FOOD_BASIC'        THEN 'GST-free supply'
+        WHEN 'MEDICAL'           THEN 'GST-free supply'
+        WHEN 'EDUCATION'         THEN 'GST-free supply'
+        ELSE 'taxable supply'
+     END)                                                  AS MISCODING_FLAG
+FROM classified c;</code></pre></div>
+
+<p>Note the <code>IS NOT NULL</code> guard inside <code>MISCODING_FLAG</code>. If the model ever
+returns nothing for a narrative, a bare <code>&lt;&gt;</code> comparison would yield
+<code>NULL</code> rather than <code>TRUE</code>, and a <code>NULL</code> flag quietly drops out of
+every <code>WHERE MISCODING_FLAG</code> filter downstream. An unclassified document is not a clean
+document, and you do not want it disappearing from the count.</p>
+
+<h3>Block 3 — the miscoding pattern</h3>
+
+<p>Individual disagreements are interesting. The pattern across them is what a tax practice acts
+on, because it points at a process rather than a transaction.</p>
+
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>SELECT
+    BOOKED_SUPPLY_CATEGORY,
+    AI_SUPPLY_CATEGORY,
+    COUNT(*)                                                     AS DOC_COUNT,
+    ROUND(100.0 * COUNT(*) / SUM(COUNT(*)) OVER (), 1)           AS PCT_OF_SAMPLE
+FROM AI_INSIGHTS.V_AI_SUPPLY_CLASSIFIED
+WHERE MISCODING_FLAG
+GROUP BY BOOKED_SUPPLY_CATEGORY, AI_SUPPLY_CATEGORY
+ORDER BY DOC_COUNT DESC;</code></pre></div>
+
+<p>One row of this result matters more than the others: <strong>entertainment booked as
+professional fees</strong>. The rest are largely vocabulary drift — a training course booked to
+general services, a canteen delivery booked to consumables — and they cost nothing, because the
+treatment happens to land in the same place either way.</p>
+
+<p>Entertainment is different. GST is genuinely charged on a corporate box or a client dinner, so
+the invoice looks unremarkable and the amount reconciles. The credit, however, is
+<strong>denied</strong> where the underlying expense is non-deductible. Book that same dinner to
+professional fees and the input tax credit is claimed automatically, correctly according to the
+rules, on a supply where it was never available. Nothing in the ledger is inconsistent. Nothing in
+the reconciliation breaks. The only evidence that anything is wrong is the sentence the supplier
+wrote on the invoice.</p>
+
+<div class="info-box"><span class="icon">📋</span><div><strong>Why this is the finding a reviewer wants</strong><p>An over-claimed credit on a denied supply is a real exposure with interest and penalties attached,
+and it is invisible to every control that operates on numbers. It is only visible to a control that
+reads. Until this step, your pipeline had no such control — not because the text was missing, but
+because nothing could query it.</p></div></div>
+
+<h3>Block 4 — close the loop into the existing work queue</h3>
+
+<p>A finding that lives in its own table is a finding nobody actions. The join below lands the AI
+results in <code>TAX.V_GST_EXCEPTIONS</code> — the same register the tax team has been working from
+since Lab 1 — on <code>(SOURCE_SYSTEM, SOURCE_DOC_REF)</code>.</p>
+
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>SELECT
+    c.DOC_ID,
+    c.SOURCE_SYSTEM,
+    c.SOURCE_DOC_REF,
+    c.BOOKED_SUPPLY_CATEGORY,
+    c.AI_SUPPLY_CATEGORY,
+    e.ENTITY_NAME,
+    e.SUPPLIER_NAME,
+    e.TAX_TREATMENT,
+    e.APPLIED_RULE_ID,
+    e.EXCEPTION_CODES,
+    e.NET_AMOUNT,
+    e.BOOKED_TAX_AMOUNT,
+    e.TAX_VARIANCE,
+    e.RISK_SCORE
+FROM AI_INSIGHTS.V_AI_SUPPLY_CLASSIFIED c
+JOIN TAX.V_GST_EXCEPTIONS e
+  ON e.SOURCE_SYSTEM  = c.SOURCE_SYSTEM
+ AND e.SOURCE_DOC_REF = c.SOURCE_DOC_REF
+WHERE c.MISCODING_FLAG
+ORDER BY e.RISK_SCORE DESC
+LIMIT 20;</code></pre></div>
+
+<p>Every AI-flagged document now arrives carrying the entity, the supplier, the treatment that was
+applied, <strong>the rule that applied it</strong> and the existing exception codes on the same
+line. A reviewer opening this result has the AI's opinion and the deterministic audit trail in a
+single row, and can disagree with the former without touching the latter.</p>
+
+<div class="info-box success"><span class="icon">🎯</span><div><strong>The teaching point — AI did not replace the rules</strong><p>Read the determination logic again: it is unchanged. No rule was rewritten, no rate was moved, no
+treatment was decided by a model. What the AI did was supply a <strong>missing attribute</strong> to
+the rules — a supply category derived from evidence rather than from an account code somebody picked
+in a hurry. The determination layer stays deterministic, versioned and auditable; the AI sits
+beside it as a source of better inputs. That distinction is the difference between an AI feature a
+tax authority will accept and one it will not.</p></div></div>

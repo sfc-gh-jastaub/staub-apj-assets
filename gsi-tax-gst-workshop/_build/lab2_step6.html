@@ -1,0 +1,176 @@
+<p>Step 4 was the most expensive operation in this workshop. Every time somebody opened
+<code>AI_INSIGHTS.V_AI_EXCEPTION_RATIONALE</code>, the language model ran again — the same
+25 exceptions, the same prompts, the same answers, billed afresh. A view recomputes on every
+read, and when the thing being recomputed is a model call, every read has a price and a wait
+attached to it.</p>
+
+<p>This step writes the model output down once and lets the tax team read it as many times as
+they like.</p>
+
+<ul class="learning-list">
+    <li>Declare a Dynamic Table with a 24-hour freshness objective over AI output.</li>
+    <li>Understand why this particular Dynamic Table must read from base tables only.</li>
+    <li>Confirm that reading it invokes no model at all.</li>
+</ul>
+
+<div class="info-box warning"><span class="icon">⚠️</span><div><strong>Read the source list before you run this</strong><p>This statement reads <code>RAW_DATA.DOC_TAX_INVOICE</code> and <code>RAW_DATA.DIM_SUPPLIER</code>
+and nothing else. That is deliberate, not an oversight. A Dynamic Table cannot read from a view
+whose lineage contains another Dynamic Table — Snowflake rejects it with <code>Dynamic Tables do
+not support reading from views containing objects of type DYNAMIC_TABLE</code>. Because
+<code>TAX.V_GST_EXCEPTIONS</code> reads <code>TAX.V_GST_DETERMINED</code>, which reads
+<code>CURATED.GL_HARMONISED</code>, and that is the workshop's one Dynamic Table, none of those
+three objects can appear below. Point this at <code>V_GST_EXCEPTIONS</code> and the
+<code>CREATE</code> fails at compile time. The AI calls are therefore inlined over the base
+document table directly.</p></div></div>
+
+<h3>Block 1 — write the model output down once</h3>
+
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>CREATE OR REPLACE DYNAMIC TABLE AI_INSIGHTS.DT_AI_EXCEPTION_REVIEW
+    TARGET_LAG = '24 hours'
+    WAREHOUSE  = GSI_TAX_WH
+AS
+WITH doc_sample AS (
+    -- Bound the population BEFORE the model sees it. 25 documents, joined to
+    -- the supplier master so the prompt has something to reason about.
+    SELECT d.DOC_ID,
+           d.SOURCE_SYSTEM,
+           d.SOURCE_DOC_REF,
+           d.SUPPLIER_ID,
+           d.BOOKED_SUPPLY_CATEGORY,
+           d.INVOICE_NARRATIVE,
+           s.SUPPLIER_NAME,
+           s.SUPPLIER_ABN,
+           s.GST_REGISTERED       AS SUPPLIER_GST_REGISTERED,
+           s.SUPPLIER_COUNTRY
+    FROM RAW_DATA.DOC_TAX_INVOICE d
+    LEFT JOIN RAW_DATA.DIM_SUPPLIER s
+           ON s.SUPPLIER_ID = d.SUPPLIER_ID
+    LIMIT 25
+),
+classified AS (
+    -- Same AI_CLASSIFY call and same six categories as Step 2.
+    SELECT c.*,
+           AI_CLASSIFY(
+               c.INVOICE_NARRATIVE,
+               ['taxable supply','GST-free supply','input taxed supply',
+                'export','entertainment','capital acquisition']
+           ):labels[0]::VARCHAR AS AI_SUPPLY_CLASSIFICATION
+    FROM doc_sample c
+),
+flagged AS (
+    SELECT c.*,
+           -- Booked category translated into the vocabulary the model returns,
+           -- so the two are comparable.
+           CASE c.BOOKED_SUPPLY_CATEGORY
+                WHEN 'ENTERTAINMENT'      THEN 'entertainment'
+                WHEN 'CAPITAL_EQUIPMENT'  THEN 'capital acquisition'
+                WHEN 'EXPORT_SALES'       THEN 'export'
+                WHEN 'RESIDENTIAL_RENT'   THEN 'input taxed supply'
+                WHEN 'FINANCIAL_SUPPLY'   THEN 'input taxed supply'
+                WHEN 'FOOD_BASIC'         THEN 'GST-free supply'
+                WHEN 'MEDICAL'            THEN 'GST-free supply'
+                WHEN 'EDUCATION'          THEN 'GST-free supply'
+                ELSE 'taxable supply'
+           END AS BOOKED_AS_CLASSIFICATION,
+           (c.AI_SUPPLY_CLASSIFICATION &lt;&gt;
+            CASE c.BOOKED_SUPPLY_CATEGORY
+                 WHEN 'ENTERTAINMENT'      THEN 'entertainment'
+                 WHEN 'CAPITAL_EQUIPMENT'  THEN 'capital acquisition'
+                 WHEN 'EXPORT_SALES'       THEN 'export'
+                 WHEN 'RESIDENTIAL_RENT'   THEN 'input taxed supply'
+                 WHEN 'FINANCIAL_SUPPLY'   THEN 'input taxed supply'
+                 WHEN 'FOOD_BASIC'         THEN 'GST-free supply'
+                 WHEN 'MEDICAL'            THEN 'GST-free supply'
+                 WHEN 'EDUCATION'          THEN 'GST-free supply'
+                 ELSE 'taxable supply'
+            END) AS MISCODING_FLAG
+    FROM classified c
+)
+SELECT
+    f.DOC_ID,
+    f.SOURCE_SYSTEM,
+    f.SOURCE_DOC_REF,
+    f.SUPPLIER_ID,
+    f.SUPPLIER_NAME,
+    f.SUPPLIER_COUNTRY,
+    f.SUPPLIER_GST_REGISTERED,
+    f.BOOKED_SUPPLY_CATEGORY,
+    f.AI_SUPPLY_CLASSIFICATION,
+    f.MISCODING_FLAG,
+    -- Every concatenated column wrapped in COALESCE. One NULL nulls the whole
+    -- prompt and the call returns NULL without complaining.
+    AI_COMPLETE(
+        'claude-sonnet-4-6',
+        'You are an Australian indirect tax analyst preparing a review note. '  ||
+        'In no more than three sentences, state whether the booked supply '     ||
+        'category looks correct and what the GST consequence is if it is not. ' ||
+        'Invoice narrative: '   || COALESCE(f.INVOICE_NARRATIVE, 'not supplied')      ||
+        '. Booked category: '   || COALESCE(f.BOOKED_SUPPLY_CATEGORY, 'unmapped')     ||
+        '. Category suggested by classification: '
+                                || COALESCE(f.AI_SUPPLY_CLASSIFICATION, 'undetermined') ||
+        '. Supplier: '          || COALESCE(f.SUPPLIER_NAME, 'unknown')              ||
+        ' in '                  || COALESCE(f.SUPPLIER_COUNTRY, 'an unknown country') ||
+        '. Supplier ABN: '      || COALESCE(f.SUPPLIER_ABN, 'not held')              ||
+        '.'
+    ) AS AI_REVIEW_NOTE
+FROM flagged f;</code></pre></div>
+
+<p>The <code>LIMIT 25</code> sits inside <code>doc_sample</code>, above the model call, so it
+bounds the rows the model is asked to read rather than the rows returned to the screen. A
+<code>LIMIT</code> in the outer <code>SELECT</code> would have run the model 300 times and then
+thrown 275 answers away.</p>
+
+<div class="info-box"><span class="icon">💡</span><div><strong>What <code>TARGET_LAG = '24 hours'</code> is actually promising</strong><p>It is a statement about staleness, not a schedule. Snowflake undertakes to keep this table no
+more than 24 hours behind its sources, and works out for itself when to do the work. For AI
+output that is generous on purpose: the invoice narrative on a document that was booked last
+month is not going to change, so there is nothing to be gained by re-reading it hourly. Run
+<code>ALTER DYNAMIC TABLE AI_INSIGHTS.DT_AI_EXCEPTION_REVIEW REFRESH;</code> if you want to
+force one immediately.</p></div></div>
+
+<h3>Block 2 — read it, and confirm no model ran</h3>
+
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- 1. The review queue, highest-interest documents first. This is now an
+--    ordinary table read: 25 rows off storage, no model invocation, no
+--    per-token cost, and it returns in the time any small SELECT takes.
+SELECT DOC_ID,
+       SUPPLIER_NAME,
+       BOOKED_SUPPLY_CATEGORY,
+       AI_SUPPLY_CLASSIFICATION,
+       MISCODING_FLAG,
+       AI_REVIEW_NOTE
+FROM AI_INSIGHTS.DT_AI_EXCEPTION_REVIEW
+ORDER BY MISCODING_FLAG DESC, DOC_ID
+LIMIT 10;
+
+-- 2. What Snowflake decided to do with your declaration.
+SHOW DYNAMIC TABLES IN SCHEMA AI_INSIGHTS;</code></pre></div>
+
+<p>Run statement 1 twice and watch the elapsed time. Then compare it against Step 4 Block 3,
+which asked the same question of the view: there, each execution queued 25 prompts, waited for
+25 completions and paid for every token in both directions. Here the text was generated once
+and is now being read, which is why the second execution is quicker still — Snowflake serves it
+from the result cache and consumes no compute at all.</p>
+
+<table class="data-table">
+    <thead>
+        <tr><th>Reading the same 25 working papers</th><th>Model calls per read</th><th>What the tax team experiences</th></tr>
+    </thead>
+    <tbody>
+        <tr><td>From the view built in Step 4</td><td>25, every single time</td><td>A wait of seconds, and a bill, on each refresh of the screen. Ten reviewers reading it once each is 250 calls.</td></tr>
+        <tr><td>From <code>DT_AI_EXCEPTION_REVIEW</code></td><td><strong>0</strong></td><td>Immediate. Ten reviewers reading it ten times each is still zero calls until the table next refreshes.</td></tr>
+    </tbody>
+</table>
+
+<p>Read the <code>refresh_mode</code> column in the output of statement 2 rather than assuming
+a value. <code>AI_COMPLETE</code> is not a deterministic function, so Snowflake cannot track
+changes through it incrementally and will report a full refresh. That is the correct answer for
+this object and it costs nothing here, because a full refresh of 25 documents is 25 calls once
+a day. It is also the reason the bounding <code>LIMIT</code> matters: whatever the population
+is, the refresh will process all of it.</p>
+
+<div class="info-box success"><span class="icon">✅</span><div><strong>The production shape</strong><p>Classify and draft on arrival, write the answer down, and let everything downstream read the
+stored text. The generated narrative in this table carries <code>DOC_ID</code>,
+<code>SOURCE_SYSTEM</code> and <code>SOURCE_DOC_REF</code>, so it still joins back to the
+ledger and to the exception register — the audit trail survives being written down. What
+changes is that the cost of the model is now a function of how much new evidence arrives,
+not of how many people look at it.</p></div></div>

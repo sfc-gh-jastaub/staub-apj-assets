@@ -1,0 +1,71 @@
+<p>The audit snapshot from Step 5 exists and it is immutable. The auditor now needs to read it. The
+usual answer is an extract — a CSV, a secure file transfer, a copy of the ledger that leaves your
+control the moment it is sent and is stale before it arrives. There is a better one.</p>
+
+<ul class="learning-list">
+    <li>Create a share and grant it access to the audit snapshot and nothing else.</li>
+    <li>Verify exactly what the consumer can see before anybody is added to it.</li>
+    <li>Understand why no data is copied and why access remains revocable.</li>
+</ul>
+
+<h3>Block 1 — create the share and grant it the snapshot only</h3>
+
+<p>Read the grant chain carefully. Usage on the database, usage on the <code>AUDIT</code> schema,
+select on one table. There is no grant on <code>RAW_DATA</code>, none on <code>CURATED</code> and
+none on <code>TAX</code> — so the ledger, the supplier master, the rules and the exception register
+are all outside the share. The auditor sees the snapshot and nothing else.</p>
+
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>USE ROLE ACCOUNTADMIN;
+
+CREATE SHARE GST_AUDIT_SNAPSHOT_SHARE
+  COMMENT = 'As-lodged GL snapshot for external audit. Read only.';
+
+-- Usage on the container objects. This grants the ability to see the
+-- database and the schema exist - it does not grant access to any data.
+GRANT USAGE ON DATABASE GSI_TAX_WORKSHOP        TO SHARE GST_AUDIT_SNAPSHOT_SHARE;
+GRANT USAGE ON SCHEMA   GSI_TAX_WORKSHOP.AUDIT  TO SHARE GST_AUDIT_SNAPSHOT_SHARE;
+
+-- The only object in the share: the immutable snapshot from Step 5.
+-- Nothing in RAW_DATA, CURATED or TAX is granted.
+GRANT SELECT ON TABLE GSI_TAX_WORKSHOP.AUDIT.GL_AS_LODGED_20260803
+  TO SHARE GST_AUDIT_SNAPSHOT_SHARE;</code></pre></div>
+
+<h3>Block 2 — verify what the consumer can actually see</h3>
+
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>SHOW GRANTS TO SHARE GST_AUDIT_SNAPSHOT_SHARE;</code></pre></div>
+
+<p>Three rows: <code>USAGE</code> on the database, <code>USAGE</code> on the schema,
+<code>SELECT</code> on one table. That output <em>is</em> the scope of the share — there is no second
+place to look and no inherited access to reason about. Run it before you add anybody, and run it
+again whenever somebody asks what the auditor can see.</p>
+
+<div class="info-box"><span class="icon">🔑</span><div><strong>No data is copied</strong><p>The consumer queries your micro-partitions directly, from their own account, with their own
+warehouse paying for their own compute. Nothing is extracted, nothing is transferred and there is no
+second copy to secure, reconcile or later destroy. Revoke the share and access stops immediately —
+there is no file already sitting in somebody's inbox. And because the share points at the live
+object, if you ever grant a view rather than a frozen clone, what the consumer sees is current rather
+than as-at-last-Tuesday.</p></div></div>
+
+<p>The snapshot in this share is a clone taken at a fixed point in time, so its contents will not
+change — that is deliberate for an audit. The properties of the share itself are what matter:
+read-only, live against the granted object, revocable in one statement, and precisely scoped to
+objects you named explicitly.</p>
+
+<h3>Adding the consumer account</h3>
+
+<p>One statement completes the share, and it needs something this workshop cannot supply:</p>
+
+<div class="info-box warning"><span class="icon">⚠️</span><div><strong>ALTER SHARE ... ADD ACCOUNTS needs a real account identifier</strong><p>The statement is
+<code>ALTER SHARE GST_AUDIT_SNAPSHOT_SHARE ADD ACCOUNTS = &lt;organisation&gt;.&lt;account&gt;;</code>
+— for example <code>ADD ACCOUNTS = EXAMPLE_ORG.AUDITOR_ACCOUNT_PLACEHOLDER</code>, which is an
+obvious placeholder and will fail. Do not run it with a guessed value. You need the auditor's actual
+organisation and account name, and for a direct share the consumer account must be in the
+<strong>same region and on the same cloud</strong> as yours. Crossing a region or a cloud requires
+replication of the shared database first, which is a separate exercise. Skip this statement in the
+workshop; the two blocks above are the part that teaches the pattern.</p></div></div>
+
+<div class="info-box success"><span class="icon">✅</span><div><strong>What you would have done instead</strong><p>Exported 2,400,000 rows to a file, agreed a transfer mechanism with the auditor, obtained approval
+to send client ledger data outside the organisation, and then had no way to withdraw it, no way to
+tell whether it had been copied again, and no answer when the auditor asked three weeks later whether
+their extract was still current. A share replaces all of that with three grants and one statement you
+can reverse.</p></div></div>

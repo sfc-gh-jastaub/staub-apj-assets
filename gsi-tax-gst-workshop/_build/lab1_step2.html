@@ -1,0 +1,190 @@
+<p>A partner puts a question to you that any client would ask: <strong>what was the group's GST
+payable for the last full quarter, by entity?</strong> It is a completely reasonable question.
+Right now it is unanswerable. The job of this step is to prove that in three queries, not to
+catalogue every flaw in the data.</p>
+
+<h3>The plausible wrong answer</h3>
+
+<p>SAP is the biggest of the three systems and the one the group thinks of as the general ledger.
+Answer the question against SAP alone.</p>
+
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- The partner's question, answered against SAP alone.
+-- GST booked by company code for the last three complete months.
+SELECT
+    g.BUKRS                    AS SAP_COMPANY_CODE,
+    e.ENTITY_NAME,
+    COUNT(*)                   AS GL_LINES_SCANNED,
+    ROUND(SUM(g.MWSTS), 2)     AS GST_BOOKED_AUD
+FROM RAW_DATA.ERP_SAP_GL g
+LEFT JOIN RAW_DATA.DIM_LEGAL_ENTITY e
+       ON e.SAP_BUKRS = g.BUKRS
+WHERE TRY_TO_DATE(g.BUDAT, 'YYYYMMDD') &gt;= DATEADD('month', -3, DATE_TRUNC('month', CURRENT_DATE()))
+  AND TRY_TO_DATE(g.BUDAT, 'YYYYMMDD') &lt;  DATE_TRUNC('month', CURRENT_DATE())
+GROUP BY 1, 2
+ORDER BY GST_BOOKED_AUD DESC;</code></pre></div>
+
+<p>That returns in about a second: a clean, confident, formatted number per company code, with
+<strong>96,025 ledger lines scanned</strong> and <strong>$176,904,538</strong> of GST across
+<strong>12 rows</strong>.</p>
+
+<div class="info-box success"><span class="icon">&#128200;</span><div><strong>The scale moment</strong><p><code>ERP_SAP_GL</code> holds 1,200,000 rows. Microsoft Excel stops at 1,048,576 &mdash; one of
+your three source systems, on its own, will not open in the tool your team uses today. That
+aggregate scanned the whole table on the smallest warehouse Snowflake sells, with no index, no
+tuning and no preparation of any kind.</p></div></div>
+
+<div class="info-box warning"><span class="icon">&#9888;&#65039;</span><div><strong>And it is still the wrong answer</strong><p>The group has 14 legal entities. That result has 12 rows, because two entities do not exist in
+SAP at all &mdash; Marrickville Food Co and Nullarbor Freight are booked in Oracle and in the
+legacy system. Nothing in the result grid says so. A number that is confidently wrong and gives
+no indication that it is wrong is the single most dangerous artefact in tax reporting.</p></div></div>
+
+<div class="info-box"><span class="icon">&#128269;</span><div><strong>Free platform moment &mdash; no query needed</strong><p>With those results still on screen, click a column header in the Snowsight results pane. Snowsight
+shows the value distribution, the null count and the distinct count for that column immediately.
+If you profile columns by hand in a spreadsheet or a workflow tool today, that is the whole job
+done in one click.</p></div></div>
+
+<h3>So stack the three systems together</h3>
+
+<p>The obvious next move is to union the three extracts on the columns that look equivalent. Try
+it.</p>
+
+<div class="info-box warning"><span class="icon">&#9888;&#65039;</span><div><strong>This cell is meant to fail</strong><p>Run it anyway. The error is the teaching point, and the next cell fixes it. You have not broken anything &mdash; expect a red cell and read the message.</p></div></div>
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- The obvious next move: stack the three extracts on the columns that
+-- look equivalent. Oracle splits the amount across two columns, so the
+-- tax code slides into the amount slot. This query FAILS. That is the point.
+SELECT BUDAT  AS DOC_DATE, DMBTR        AS AMOUNT, MWSKZ  AS TAX_CODE
+FROM RAW_DATA.ERP_SAP_GL
+UNION ALL
+SELECT GL_DATE, ENTERED_DR, ENTERED_CR
+FROM RAW_DATA.ERP_ORACLE_GL
+UNION ALL
+SELECT txn_dt, amt_incl_tax, tax_flag
+FROM RAW_DATA.ERP_LEGACY_AP;
+
+-- Numeric value 'S0' is not recognized</code></pre></div>
+
+<p>It fails. <code>Numeric value 'S0' is not recognized</code>. There is no way to line these three
+extracts up by position, and there are four separate reasons why.</p>
+
+<ul class="learning-list">
+<li><strong>Date types.</strong> One column is a real <code>DATE</code>; the other two are text in
+two different conventions. <code>20250513</code> and <code>13/05/2025</code> cannot be compared,
+sorted or filtered against each other until both are parsed, and roughly 2% of the legacy dates
+are not valid dates at all.</li>
+<li><strong>Amount conventions.</strong> SAP posts one signed GST-exclusive figure. Oracle posts
+unsigned amounts split across a debit column and a credit column, one of which is always null.
+The legacy system posts a single unsigned GST-inclusive figure, so the taxable value has to be
+derived by removing one eleventh before anything can be added up.</li>
+<li><strong>Entity keys.</strong> <code>1010</code>, <code>LED_2001</code> and <code>AU01</code> are
+the same company. Nothing in the three extracts connects them; only
+<code>DIM_LEGAL_ENTITY</code> does, and it is also the only place that records which entities are
+absent from which system.</li>
+<li><strong>Account codes.</strong> <code>400001</code>, <code>5100-0001</code> and
+<code>AP001</code> describe the same expense. Without the mapping there is no supply category,
+and without a supply category no tax treatment can be determined.</li>
+</ul>
+
+<h3>One query, the whole diagnosis</h3>
+
+<p>Rather than run a separate count for each problem, ask for all of them at once: one row per
+defect, with a count and a percentage of the relevant population.</p>
+
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- One query, one row per defect, the whole diagnosis. Scans all 2,400,000
+-- ledger lines plus the supplier and entity masters.
+WITH gl AS (
+    SELECT 'SAP' AS SOURCE_SYSTEM, HKONT AS NATIVE_ACCOUNT_CODE,
+           LIFNR AS SUPPLIER_ID, MWSTS AS BOOKED_TAX
+    FROM RAW_DATA.ERP_SAP_GL
+    UNION ALL
+    SELECT 'ORACLE', CODE_COMBINATION, VENDOR_ID, TAX_AMOUNT
+    FROM RAW_DATA.ERP_ORACLE_GL
+    UNION ALL
+    SELECT 'LEGACY', acct, vendor_ref, tax_amt
+    FROM RAW_DATA.ERP_LEGACY_AP
+)
+SELECT 'Legacy dates that will not parse'                    AS ISSUE,
+       COUNT(*)                                              AS AFFECTED,
+       ROUND(100.0 * COUNT(*)
+             / (SELECT COUNT(*) FROM RAW_DATA.ERP_LEGACY_AP), 2) AS PCT_OF_POPULATION,
+       'ERP_LEGACY_AP lines'                                 AS POPULATION
+FROM RAW_DATA.ERP_LEGACY_AP
+WHERE TRY_TO_DATE(txn_dt, 'DD/MM/YYYY') IS NULL
+
+UNION ALL
+SELECT 'GL lines with no account mapping', COUNT(*),
+       ROUND(100.0 * COUNT(*) / (SELECT COUNT(*) FROM gl), 2), 'All GL lines'
+FROM gl g
+LEFT JOIN RAW_DATA.DIM_ACCOUNT_MAPPING m
+       ON m.SOURCE_SYSTEM = g.SOURCE_SYSTEM
+      AND m.NATIVE_ACCOUNT_CODE = g.NATIVE_ACCOUNT_CODE
+WHERE m.MAPPING_ID IS NULL
+
+UNION ALL
+SELECT 'GL lines with GST booked by an unregistered supplier', COUNT(*),
+       ROUND(100.0 * COUNT(*) / (SELECT COUNT(*) FROM gl), 2), 'All GL lines'
+FROM gl g
+JOIN RAW_DATA.DIM_SUPPLIER s ON s.SUPPLIER_ID = g.SUPPLIER_ID
+WHERE s.GST_REGISTERED = FALSE AND ABS(g.BOOKED_TAX) &gt; 0
+
+UNION ALL
+SELECT 'Suppliers with no ABN on file', COUNT(*),
+       ROUND(100.0 * COUNT(*)
+             / (SELECT COUNT(*) FROM RAW_DATA.DIM_SUPPLIER), 2), 'Supplier master records'
+FROM RAW_DATA.DIM_SUPPLIER
+WHERE SUPPLIER_ABN IS NULL
+
+UNION ALL
+SELECT 'Entities missing from at least one ERP', COUNT(*),
+       ROUND(100.0 * COUNT(*)
+             / (SELECT COUNT(*) FROM RAW_DATA.DIM_LEGAL_ENTITY), 2), 'Group legal entities'
+FROM RAW_DATA.DIM_LEGAL_ENTITY
+WHERE SAP_BUKRS IS NULL OR ORACLE_LEDGER_ID IS NULL OR LEGACY_ENTITY_CD IS NULL
+
+ORDER BY AFFECTED DESC;</code></pre></div>
+
+<p>Expect results close to these. The exact figures move slightly because the transaction window
+extends to the current date.</p>
+
+<table class="data-table">
+<thead><tr><th>Issue</th><th>Affected</th><th>Percentage</th><th>Population</th></tr></thead>
+<tbody>
+<tr><td>GL lines with no account mapping</td><td>77,484</td><td>3.23%</td><td>All GL lines</td></tr>
+<tr><td>GL lines with GST booked by an unregistered supplier</td><td>31,039</td><td>1.29%</td><td>All GL lines</td></tr>
+<tr><td>Legacy dates that will not parse</td><td>8,088</td><td>2.02%</td><td><code>ERP_LEGACY_AP</code> lines</td></tr>
+<tr><td>Suppliers with no ABN on file</td><td>102</td><td>5.10%</td><td>Supplier master records</td></tr>
+<tr><td>Entities missing from at least one ERP</td><td>6</td><td>42.86%</td><td>Group legal entities</td></tr>
+</tbody>
+</table>
+
+<p>Read the first row out loud. <strong>77,484 ledger lines carry an account code that nobody has
+mapped.</strong> Those lines have no supply category, so no rule can reach them, so their GST
+treatment is unknown. That is not a data hygiene footnote; it is an unquantified position in a
+lodged return.</p>
+
+<h3>The full defect inventory</h3>
+
+<p>The scorecard covers the defects that block the question outright. These are all of them,
+including the ones that only become visible once the ledger is conformed and the rules are
+applied in the next three steps.</p>
+
+<table class="data-table">
+<thead><tr><th>#</th><th>Defect</th><th>Volume</th><th>Where it is dealt with</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>Three date formats: <code>YYYYMMDD</code> text, native <code>DATE</code>, <code>DD/MM/YYYY</code> text</td><td>all 2,400,000</td><td>Step 3 date normalisation</td></tr>
+<tr><td>2</td><td>Malformed legacy dates</td><td>8,088</td><td><code>IS_DATE_PARSED</code>, exception E2, <code>TRY_TO_DATE</code></td></tr>
+<tr><td>3</td><td>Three amount conventions: signed / debit-credit pair / GST-inclusive</td><td>all 2,400,000</td><td>Step 3 sign and gross-up conformance</td></tr>
+<tr><td>4</td><td>Three entity identifier schemes</td><td>all 2,400,000</td><td>Step 3 entity resolution</td></tr>
+<tr><td>5</td><td>Account codes absent from the mapping</td><td>77,484 (3.23%)</td><td><code>IS_ACCOUNT_MAPPED</code>, exception E1</td></tr>
+<tr><td>6</td><td>Suppliers with no ABN</td><td>102 suppliers</td><td>Exception E3, input tax credit exposure</td></tr>
+<tr><td>7</td><td>Unregistered suppliers charging GST</td><td>31,039 lines</td><td>Exception E4</td></tr>
+<tr><td>8</td><td>Booked GST differs from expected GST by more than $1</td><td>107,808 lines</td><td>Exception E5</td></tr>
+<tr><td>9</td><td>Credits claimed on non-recoverable treatments</td><td>36,718 lines</td><td>Exception E6</td></tr>
+<tr><td>10</td><td>Cross-border services with no reverse charge</td><td>11,754 lines</td><td>Exception E7</td></tr>
+<tr><td>11</td><td>Lodged BAS diverges from the computed position</td><td>18 entity-periods</td><td>Step 5 reconciliation and audit</td></tr>
+<tr><td>12</td><td>Entities missing from one or two source systems</td><td>6 of 14</td><td>Step 3 outer-join reasoning</td></tr>
+<tr><td>13</td><td>Booked supply category disagrees with the invoice narrative</td><td>~25% of 300 documents</td><td>Lab 2 Step 2 miscoding detection</td></tr>
+</tbody>
+</table>
+
+<div class="info-box"><span class="icon">&#128161;</span><div><strong>The work is not the analysis</strong><p>The partner's question needed one <code>GROUP BY</code>. Everything that stands between you and a
+defensible answer to it is conformance: parsing dates, resolving entities, mapping accounts,
+normalising signs. That is what Step 3 builds, once, for every question that follows.</p></div></div>

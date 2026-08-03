@@ -1,0 +1,249 @@
+<p>Everything so far has required somebody who can write SQL. The tax team cannot, and that is the
+actual constraint on how much of this work gets done — not compute, not data quality, not model
+availability. This step removes the SQL requirement and lets a tax specialist ask the question in the
+words they already use.</p>
+
+<ul class="learning-list">
+    <li>Flatten the governed ledger, the exceptions and the BAS variance into one wide view.</li>
+    <li>Create a semantic view — the business vocabulary the agent reasons over.</li>
+    <li>Create the agent in Snowsight and attach the semantic view as an Analyst tool.</li>
+    <li>Ask eight questions in plain English, and one of them closes the workshop.</li>
+</ul>
+
+<h3>Block 1 — one wide view for the semantic layer</h3>
+
+<p>Cortex Analyst reasons best over a single wide, flat object: one row per ledger line, every
+dimension and every measure present as a column, no joins left for the model to work out. The view
+below assembles that from the three objects Lab 1 produced — determination, exceptions and
+reconciliation — joined once, here, so the agent never has to.</p>
+
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>CREATE OR REPLACE VIEW AGENTS.V_GST_INTELLIGENCE AS
+SELECT
+    -- keys and dimensions
+    d.GL_LINE_ID,
+    d.SOURCE_SYSTEM,
+    d.SOURCE_DOC_REF,
+    d.ENTITY_ID,
+    d.ENTITY_NAME,
+    d.JURISDICTION,
+    d.DOC_DATE,
+    d.TAX_PERIOD,
+    d.DOC_TYPE,
+    d.GROUP_ACCOUNT_CODE,
+    d.GROUP_ACCOUNT_NAME,
+    d.SUPPLY_CATEGORY,
+    d.SUPPLIER_ID,
+    d.SUPPLIER_NAME,
+    d.SUPPLIER_ABN,
+    d.SUPPLIER_COUNTRY,
+    d.SUPPLIER_GST_REGISTERED,
+    d.IS_CROSS_BORDER,
+    d.TAX_TREATMENT,
+    d.RECOVERABLE,
+    d.APPLIED_RULE_ID,
+    d.APPLIED_RULE_DESCRIPTION,
+    d.APPLIED_RATE_PCT,
+    d.IS_ACCOUNT_MAPPED,
+    d.IS_DATE_PARSED,
+
+    -- measures from the determination layer
+    d.NET_AMOUNT,
+    d.BOOKED_TAX_AMOUNT,
+    d.EXPECTED_TAX_AMOUNT,
+    d.TAX_VARIANCE,
+
+    -- exception context, one row per line, so no fan-out is possible
+    COALESCE(e.EXCEPTION_COUNT, 0)                       AS EXCEPTION_COUNT,
+    (e.GL_LINE_ID IS NOT NULL)                           AS HAS_EXCEPTION,
+    e.EXCEPTION_CODES,
+    e.EXCEPTION_REASONS,
+    COALESCE(e.MAX_SEVERITY, 'NONE')                     AS MAX_SEVERITY,
+    COALESCE(e.RISK_SCORE, 0)                            AS RISK_SCORE,
+
+    -- BAS reconciliation context, repeated per line within its entity/period
+    b.COMPUTED_NET_GST,
+    b.LODGED_NET_GST,
+    b.VARIANCE_NET                                       AS BAS_VARIANCE_NET,
+    b.VARIANCE_PCT                                       AS BAS_VARIANCE_PCT,
+    COALESCE(b.RECON_STATUS, 'NOT_RECONCILED')           AS RECON_STATUS
+FROM TAX.V_GST_DETERMINED d
+LEFT JOIN TAX.V_GST_EXCEPTIONS e
+       ON e.GL_LINE_ID = d.GL_LINE_ID
+LEFT JOIN TAX.V_GST_VS_BAS b
+       ON b.ENTITY_ID  = d.ENTITY_ID
+      AND b.TAX_PERIOD = d.TAX_PERIOD;</code></pre></div>
+
+<p>Both joins are <code>LEFT JOIN</code>s for the same reason as in Lab 1: a line without an
+exception must still appear, or the agent's answer to "total GST payable" would silently exclude every
+clean transaction. <code>EXCEPTION_COUNT</code> and <code>RISK_SCORE</code> are wrapped in
+<code>COALESCE</code> so a clean line reads zero rather than <code>NULL</code>, which is what makes
+<code>SUM(EXCEPTION_COUNT)</code> answer the question a tax person actually asked.</p>
+
+<div class="info-box warning"><span class="icon">⚠️</span><div><strong>The BAS columns repeat, and that is intentional</strong><p><code>V_GST_VS_BAS</code> is one row per entity per period, so joining it to a line-level view
+repeats the same reconciliation figures across every line in that period. Aggregating
+<code>LODGED_NET_GST</code> with <code>SUM</code> would therefore multiply it by the line count. The
+semantic view below defines the BAS measures with <code>MAX</code> and <code>AVG</code> for exactly
+this reason, and the metric descriptions say so — which is how you stop an agent producing a
+confidently wrong number.</p></div></div>
+
+<h3>The primary path — let Snowsight build the semantic view</h3>
+
+<p>Do this in the UI. It is faster than writing DDL, it produces a better result because it inspects
+the data before suggesting anything, and in a room it is considerably more convincing than reading a
+<code>CREATE</code> statement aloud.</p>
+
+<ol>
+    <li>In Snowsight, open <strong>AI &amp; ML</strong>, then <strong>Cortex Analyst</strong>, then
+    <strong>Create new</strong>.</li>
+    <li>Select <code>GSI_TAX_WORKSHOP.AGENTS.V_GST_INTELLIGENCE</code> as the source and let
+    <strong>Autopilot</strong> run.</li>
+    <li>Review what it proposes. It will infer dimensions from the low-cardinality text and date
+    columns, and metrics from the numeric ones, and it will be broadly right.</li>
+    <li>Correct the two things it cannot know. Set the BAS measures to
+    <strong><code>MAX</code></strong> rather than <code>SUM</code>, for the reason in the callout
+    above. And confirm that <code>EXPECTED_TAX_AMOUNT</code> and
+    <code>BOOKED_TAX_AMOUNT</code> are described distinctly — one is what the rules say, the other is
+    what the ERP posted, and an agent that conflates them will answer every variance question
+    wrongly.</li>
+    <li>Then spend your remaining time on <strong>synonyms</strong>.</li>
+</ol>
+
+<div class="info-box"><span class="icon">🔑</span><div><strong>The synonyms are the product</strong><p>A tax specialist does not type <code>LABEL_1B_GST_CREDITS</code>. They type <em>"input tax
+credits"</em>, or <em>"ITCs"</em>, or <em>"GST on purchases"</em>, and if the semantic view has never
+heard of any of those phrases the agent will guess or refuse. Every dimension and every metric should
+carry the words the tax team says out loud: <em>"BAS"</em> and <em>"activity statement"</em> for the
+lodgement measures, <em>"entity"</em> and <em>"company"</em> for <code>ENTITY_NAME</code>,
+<em>"reverse charge"</em> for the treatment, <em>"month"</em> and <em>"period"</em> for
+<code>TAX_PERIOD</code>. This is the least technical work in the entire workshop and it determines
+whether anybody uses what you built. Sit with the tax team and write them down.</p></div></div>
+
+<h3>Block 2 — the DDL fallback</h3>
+
+<p>If Autopilot is unavailable in your account, or you want the semantic view in version control
+alongside the rest of the pipeline, this is the same object written by hand. Note that the synonyms
+and comments are not decoration: they are the entire interface between the tax vocabulary and the
+data.</p>
+
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>CREATE OR REPLACE SEMANTIC VIEW AGENTS.SV_GST_COMPLIANCE
+    TABLES (
+        gst AS AGENTS.V_GST_INTELLIGENCE
+            PRIMARY KEY (GL_LINE_ID)
+            WITH SYNONYMS = ('GST ledger','tax ledger','transactions','GST lines')
+            COMMENT = 'One row per general ledger line with its determined Australian GST treatment, exception status and BAS reconciliation context.'
+    )
+    DIMENSIONS (
+        gst.ENTITY_NAME AS ENTITY_NAME
+            WITH SYNONYMS = ('entity','company','legal entity','business','subsidiary')
+            COMMENT = 'Australian group entity that recorded the transaction.',
+        gst.TAX_PERIOD AS TAX_PERIOD
+            WITH SYNONYMS = ('period','month','tax period','BAS period','reporting period')
+            COMMENT = 'Monthly GST period, stored as the first day of the month.',
+        gst.DOC_DATE AS DOC_DATE
+            WITH SYNONYMS = ('document date','transaction date','invoice date')
+            COMMENT = 'Date of the underlying document. Determination rules are applied as at this date.',
+        gst.SUPPLY_CATEGORY AS SUPPLY_CATEGORY
+            WITH SYNONYMS = ('supply category','expense type','category','account category','spend type')
+            COMMENT = 'Category of supply from the account mapping. NULL means the account is unmapped.',
+        gst.TAX_TREATMENT AS TAX_TREATMENT
+            WITH SYNONYMS = ('treatment','tax treatment','GST treatment','reverse charge','GST free','input taxed')
+            COMMENT = 'GST treatment determined by the rules: TAXABLE, GST_FREE, INPUT_TAXED, REVERSE_CHARGE, EXPORT, NON_DEDUCTIBLE or OUT_OF_SCOPE.',
+        gst.SOURCE_SYSTEM AS SOURCE_SYSTEM
+            WITH SYNONYMS = ('source system','ERP','system','source')
+            COMMENT = 'Originating ERP: SAP, ORACLE or LEGACY.',
+        gst.RECON_STATUS AS RECON_STATUS
+            WITH SYNONYMS = ('reconciliation status','recon status','BAS status','match status')
+            COMMENT = 'Reconciliation outcome against the lodged BAS: MATCHED, REVIEW or INVESTIGATE.',
+        gst.SUPPLIER_NAME AS SUPPLIER_NAME
+            WITH SYNONYMS = ('supplier','vendor','creditor','payee')
+            COMMENT = 'Supplier of the acquisition or customer of the supply.',
+        gst.SUPPLIER_ABN AS SUPPLIER_ABN
+            WITH SYNONYMS = ('ABN','supplier ABN','Australian business number')
+            COMMENT = 'Supplier ABN from the supplier master. NULL means no ABN is held, which denies the input tax credit above $82.50.',
+        gst.EXCEPTION_CODES AS EXCEPTION_CODES
+            WITH SYNONYMS = ('exception codes','issue codes','error codes','findings')
+            COMMENT = 'Comma separated exception codes raised against the line, E1 to E7.',
+        gst.MAX_SEVERITY AS MAX_SEVERITY
+            WITH SYNONYMS = ('severity','risk level','priority')
+            COMMENT = 'Highest severity among the exceptions on the line: HIGH, MEDIUM, LOW or NONE.',
+        gst.IS_ACCOUNT_MAPPED AS IS_ACCOUNT_MAPPED
+            WITH SYNONYMS = ('account mapped','mapped account','unmapped account','mapping complete')
+            COMMENT = 'FALSE where the native account code has no entry in the account mapping table.',
+        gst.IS_CROSS_BORDER AS IS_CROSS_BORDER
+            WITH SYNONYMS = ('cross border','imported','offshore','overseas supplier')
+            COMMENT = 'TRUE where the supplier country differs from the entity jurisdiction.'
+    )
+    METRICS (
+        gst.LINE_COUNT AS COUNT(gst.GL_LINE_ID)
+            WITH SYNONYMS = ('line count','number of lines','transactions','volume','how many')
+            COMMENT = 'Number of ledger lines.',
+        gst.TOTAL_NET_AMOUNT AS SUM(gst.NET_AMOUNT)
+            WITH SYNONYMS = ('net amount','net','value excluding GST','ex GST amount','turnover')
+            COMMENT = 'Total amount net of GST, in AUD.',
+        gst.TOTAL_BOOKED_TAX AS SUM(gst.BOOKED_TAX_AMOUNT)
+            WITH SYNONYMS = ('booked GST','posted GST','GST as booked','recorded GST')
+            COMMENT = 'GST actually posted by the source ERP, in AUD.',
+        gst.TOTAL_EXPECTED_TAX AS SUM(gst.EXPECTED_TAX_AMOUNT)
+            WITH SYNONYMS = ('expected GST','computed GST','GST per the rules','correct GST','GST payable')
+            COMMENT = 'GST expected under the determination rules, in AUD. This is the computed position.',
+        gst.TOTAL_TAX_VARIANCE AS SUM(gst.TAX_VARIANCE)
+            WITH SYNONYMS = ('variance','GST variance','difference','exposure','under or over')
+            COMMENT = 'Booked GST minus expected GST, in AUD. Positive means over-booked.',
+        gst.TOTAL_EXCEPTION_COUNT AS SUM(gst.EXCEPTION_COUNT)
+            WITH SYNONYMS = ('exceptions','number of exceptions','issues','findings count','errors')
+            COMMENT = 'Total exceptions raised across the selected lines.',
+        gst.LODGED_NET_GST_AMOUNT AS MAX(gst.LODGED_NET_GST)
+            WITH SYNONYMS = ('lodged GST','lodged net GST','BAS lodged','as lodged','net GST on the BAS')
+            COMMENT = 'Net GST per the lodged BAS for the entity and period. Uses MAX because this figure repeats across every line in the period and must never be summed.',
+        gst.COMPUTED_NET_GST_AMOUNT AS MAX(gst.COMPUTED_NET_GST)
+            WITH SYNONYMS = ('computed net GST','calculated net GST','our GST position')
+            COMMENT = 'Net GST computed from the ledger for the entity and period. Uses MAX because this figure repeats across every line in the period and must never be summed.'
+    )
+    COMMENT = 'Australian GST compliance semantic model over the governed ledger. Monthly periods, AUD, 14 Australian entities.';</code></pre></div>
+
+<h3>Create the agent</h3>
+
+<ol>
+    <li>Open <strong>AI &amp; ML</strong>, then <strong>Agents</strong>, then
+    <strong>Create agent</strong>.</li>
+    <li>Name it <code>GST_COMPLIANCE_AGENT</code>.</li>
+    <li>Add a <strong>Cortex Analyst</strong> tool and point it at
+    <code>AGENTS.SV_GST_COMPLIANCE</code>.</li>
+    <li>Set the response instructions to: <em>answer the question first, then show the SQL you
+    generated, then state any assumptions you made about the tax period or the entity.</em></li>
+</ol>
+
+<p>That third instruction matters more than it looks. Half of the questions a tax specialist asks are
+implicitly scoped — "last quarter", "this month", "for the group" — and the difference between a
+useful agent and a dangerous one is whether it tells you which entity and which period it decided you
+meant. Showing the SQL is the other half: a tax reviewer who can read the query can sign off on the
+answer, and nobody signs off on a number with no working.</p>
+
+<h3>Eight questions to ask it</h3>
+
+<ol>
+    <li>What was our total GST payable last quarter?</li>
+    <li>Which entities have exceptions this month?</li>
+    <li>Show me net GST by entity for the last six months.</li>
+    <li>Which suppliers are missing an ABN on claimed credits?</li>
+    <li>What is our total exposure from unmapped accounts?</li>
+    <li>Compare computed GST to lodged GST by period.</li>
+    <li>Which supply categories generate the most exceptions?</li>
+    <li><strong>Show imported professional fees before and after 1 July 2024.</strong> &mdash; demonstrate this one live.</li>
+</ol>
+
+<div class="info-box success"><span class="icon">⭐</span><div><strong>Why question 8 is the one to run in front of the room</strong><p>It exercises the effective-dated determination rules you built in Lab 1. The same population of
+imported professional fees, from the same offshore suppliers, on the same accounts, returns
+<code>GST_FREE</code> at 0.00% before 1 July 2024 and <code>REVERSE_CHARGE</code> at 10.00% from that
+date onward — because rule 9 stopped applying and rule 16 started. Nothing about the transactions
+changed. Only the rule that applied to them did, and it changed because of the date on the document
+rather than the date on the calendar. The agent finds that boundary from one sentence of plain
+English, and the $25.5 million of expected GST on the far side of it is the number that ends the
+workshop.</p></div></div>
+
+<div class="info-box"><span class="icon">🎯</span><div><strong>The teaching point — and the point of the whole workshop</strong><p>The agent is only as good as the semantic layer, and the semantic layer is only as good as the
+governed data underneath it. Point Cortex Analyst at three unreconciled ERPs with three date formats,
+three amount conventions and no entity crosswalk and it will answer fluently and wrongly. Everything
+that makes question 8 work — the conformed ledger, the effective-dated rules, the rule lineage on
+every line, the exception register, the reconciliation — was built in Lab 1, before any AI was
+involved. <strong>Lab 1 was not the warm-up for this. Lab 1 was the prerequisite for this.</strong>
+That is the sentence to leave the room with.</p></div></div>

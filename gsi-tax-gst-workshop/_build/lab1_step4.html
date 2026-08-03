@@ -1,0 +1,409 @@
+<p>This is the most important step in the lab, and it carries a single message: <strong>the rules live
+in a table that the tax team owns, not in code that a developer owns.</strong></p>
+
+<p>Tax logic is not a <code>CASE</code> statement. It is a body of rules with jurisdictions,
+effective dates and precedence, and it changes without warning — usually at short notice, and
+usually not by anyone in IT. So we hold it as data the tax team can read, review and change
+themselves.</p>
+
+<ul class="learning-list">
+    <li>Read the entire determination logic of the system without reading any SQL.</li>
+    <li>Apply effective-dated rules with generic SQL that contains no rates and no treatments.</li>
+    <li>Watch the group GST position change from a single <code>UPDATE</code> to one row of data.</li>
+    <li>Stand up a self-maintaining exception register over the result.</li>
+</ul>
+
+<h3>Block 1 — the rules, as data</h3>
+
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- The decision table. NULL means "matches anything". Lower PRIORITY wins.
+SELECT RULE_ID, PRIORITY, JURISDICTION, SUPPLY_CATEGORY,
+       SUPPLIER_GST_REGISTERED, IS_CROSS_BORDER,
+       TAX_TREATMENT, RECOVERABLE,
+       VALID_FROM, VALID_TO, RULE_DESCRIPTION
+FROM TAX.TAX_RULE_DETERMINATION
+ORDER BY PRIORITY, RULE_ID;
+
+-- The rate table. Keyed on jurisdiction, treatment and date.
+SELECT RATE_ID, JURISDICTION, TAX_TREATMENT, RATE_PCT, VALID_FROM, VALID_TO
+FROM TAX.TAX_RULE_RATE
+ORDER BY JURISDICTION, VALID_FROM, TAX_TREATMENT;</code></pre></div>
+
+<p>Stop here and say this out loud, because it is the point of the step: <strong>a tax person can
+read those two result grids and understand the entire determination logic of the system without
+reading a single line of SQL.</strong> Sixteen rules and nineteen rates. No code review, no
+developer to interpret, nothing hidden in a query somebody wrote four years ago and left.</p>
+
+<p>Now let the room find <strong>rules 9 and 16</strong>. Same priority, same predicates —
+<code>PROFESSIONAL_FEES</code>, supplier not GST registered, cross-border — and two adjacent,
+non-overlapping validity windows:</p>
+
+<table class="data-table">
+    <thead>
+        <tr><th>Rule</th><th>Priority</th><th>Predicates</th><th>Treatment</th><th>Recoverable</th><th>Valid from</th><th>Valid to</th></tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td><strong>9</strong></td><td>20</td>
+            <td><code>PROFESSIONAL_FEES</code>, unregistered, cross-border</td>
+            <td><strong>GST_FREE</strong></td><td>FALSE</td>
+            <td>2000-07-01</td><td><strong>2024-06-30</strong></td>
+        </tr>
+        <tr>
+            <td><strong>16</strong></td><td>20</td>
+            <td><code>PROFESSIONAL_FEES</code>, unregistered, cross-border</td>
+            <td><strong>REVERSE_CHARGE</strong></td><td>TRUE</td>
+            <td><strong>2024-07-01</strong></td><td>9999-12-31</td>
+        </tr>
+    </tbody>
+</table>
+
+<p>That is not two rules. It is <strong>the same rule with two effective-dated versions</strong>.
+Following a review, the group corrected its position on imported professional services with effect
+from 1 July 2024 — before that date those acquisitions were treated as out of scope, and from that
+date the reverse charge applies. Unrecognised reverse charge on imported services is one of the most
+common findings in an Australian GST review, so this is not a hypothetical.</p>
+
+<div class="info-box warning"><span class="icon">⚠️</span><div><strong>Ask the room this question before you run anything else</strong><p>What happens to three years of already-lodged BAS if that corrected treatment is
+<em>hard-coded</em> instead of effective-dated? You do not merely get next quarter wrong. Your
+computed position for closed periods moves, your reconciliation lights up for periods that were
+correct when they were filed, and you can no longer distinguish a genuine variance from one you
+manufactured yourself.</p></div></div>
+
+<p>One note on the rate table while it is on screen. The Australian GST rate has been 10% since
+1 July 2000 and has never changed — so the demonstrated change in this workshop is a change of
+<em>treatment</em>, not of rate, because that is what actually moves in Australia. The rate table is
+date-effective anyway, so that if the rate ever does move, nobody edits a query. Its non-Australian
+rows exist only as unused extensibility and no example in this workshop touches them.</p>
+
+<p>Rule 15 deserves one sentence too. It matches everything at priority 99, which guarantees that
+every line resolves to exactly one rule. A decision table without a catch-all silently drops rows,
+and dropped rows in a tax computation are the worst possible failure mode because the total still
+looks reasonable.</p>
+
+<h3>Why two rule tables and not one</h3>
+
+<p>Different grain. Determination is keyed on the characteristics of the transaction — jurisdiction,
+supply category, whether the supplier is registered, whether the supply is cross-border. Rate is
+keyed on jurisdiction, treatment and date. Collapse them into one table and a single rate change
+becomes an update across every rule that happens to mention that treatment, which is exactly the
+kind of multi-row edit that gets one row wrong.</p>
+
+<div class="info-box"><span class="icon">🔒</span><div><strong>And why the rules are not SQL strings in a VARCHAR</strong><p>A recurring suggestion is to store each rule as a SQL fragment in a text column and evaluate it
+dynamically. Do not: a rule expressed as a string cannot be tested, validated on entry, or
+type-checked, so the first time you learn it is malformed is when it runs in a production
+computation. It is also a straightforward injection surface, because anyone who can edit a rule row
+can then execute arbitrary SQL with the pipeline's privileges. Rules here are structured columns
+with declared types, which is why they can be constrained, reviewed and diffed.</p></div></div>
+
+<h3>Block 2 — build the determination view</h3>
+
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>CREATE OR REPLACE VIEW TAX.V_GST_DETERMINED AS
+WITH matched AS (
+    SELECT
+        g.*,
+        r.RULE_ID          AS APPLIED_RULE_ID,
+        r.RULE_DESCRIPTION AS APPLIED_RULE_DESCRIPTION,
+        r.TAX_TREATMENT,
+        r.RECOVERABLE
+    FROM CURATED.GL_HARMONISED g
+    LEFT JOIN TAX.TAX_RULE_DETERMINATION r
+      ON (r.JURISDICTION            IS NULL OR r.JURISDICTION            = g.JURISDICTION)
+     AND (r.SUPPLY_CATEGORY         IS NULL OR r.SUPPLY_CATEGORY         = g.SUPPLY_CATEGORY)
+     AND (r.SUPPLIER_GST_REGISTERED IS NULL OR r.SUPPLIER_GST_REGISTERED = g.SUPPLIER_GST_REGISTERED)
+     AND (r.IS_CROSS_BORDER         IS NULL OR r.IS_CROSS_BORDER         = g.IS_CROSS_BORDER)
+     AND  g.DOC_DATE BETWEEN r.VALID_FROM AND r.VALID_TO
+    QUALIFY ROW_NUMBER() OVER (PARTITION BY g.GL_LINE_ID
+                               ORDER BY r.PRIORITY, r.RULE_ID) = 1
+)
+SELECT
+    m.*,
+    rt.RATE_PCT                                          AS APPLIED_RATE_PCT,
+    ROUND(m.NET_AMOUNT * rt.RATE_PCT / 100, 2)           AS EXPECTED_TAX_AMOUNT,
+    ROUND(m.BOOKED_TAX_AMOUNT
+          - ROUND(m.NET_AMOUNT * rt.RATE_PCT / 100, 2), 2) AS TAX_VARIANCE
+FROM matched m
+LEFT JOIN TAX.TAX_RULE_RATE rt
+       ON rt.JURISDICTION   = m.JURISDICTION
+      AND rt.TAX_TREATMENT  = m.TAX_TREATMENT
+      AND m.DOC_DATE BETWEEN rt.VALID_FROM AND rt.VALID_TO;</code></pre></div>
+
+<p>Read what is <em>not</em> in that statement. There are no rates, no jurisdictions, no supply
+categories and no treatments anywhere in it. It is a thin, generic mechanism for applying whatever
+the two tables happen to say. Change a rule and you have changed the answer this view returns on the
+next query — no rebuild, no redeployment.</p>
+
+<p>Both joins are date-ranged on <code>DOC_DATE</code> and not on <code>CURRENT_DATE()</code>. This
+is the whole idea: a transaction is judged by the rules that applied <em>when it happened</em>. It is
+also why rules 9 and 16 can share priority 20 without ambiguity — their windows do not overlap, so
+only one of them can ever match a given line.</p>
+
+<div class="info-box"><span class="icon">💡</span><div><strong>QUALIFY, in one paragraph</strong><p>Most attendees will not have met <code>QUALIFY</code>. It filters on the result of a window
+function, in the same way <code>HAVING</code> filters on the result of an aggregate. Here, a single
+ledger line can legitimately match several rules — an entertainment line matches rule 1 and also the
+rule 15 catch-all. <code>ROW_NUMBER() OVER (PARTITION BY g.GL_LINE_ID ORDER BY r.PRIORITY,
+r.RULE_ID)</code> numbers each line's candidate rules from most specific to least, and
+<code>QUALIFY ... = 1</code> keeps only the winner. That is most-specific-wins precedence expressed
+in two lines, with no self-join and no subquery.</p></div></div>
+
+<p>The join to the rule table is a <code>LEFT JOIN</code>, deliberately. A line whose date could not
+be parsed has no determinable treatment — you genuinely cannot say how a transaction should be taxed
+when you do not know when it occurred. With an inner join those lines vanish silently, which is
+catastrophic, because they are precisely the lines somebody needs to chase. As a left join all
+2,400,000 lines survive and <code>TAX_TREATMENT</code> comes back <code>NULL</code> only where
+<code>IS_DATE_PARSED = FALSE</code>. Missing information is represented as missing information.</p>
+
+<h3>Block 3 — prove the effective dating</h3>
+
+<p>One query, one population: Australian imported professional fees from offshore suppliers that are
+not GST registered. Grouped either side of 1 July 2024, from the same view, with no conditional tax
+logic anywhere.</p>
+
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>SELECT CASE WHEN DOC_DATE &lt; '2024-07-01'::DATE
+            THEN 'Before 1 Jul 2024'
+            ELSE 'From 1 Jul 2024' END      AS PERIOD_SIDE,
+       APPLIED_RULE_ID,
+       TAX_TREATMENT,
+       APPLIED_RATE_PCT,
+       COUNT(*)                             AS LINE_COUNT,
+       ROUND(SUM(EXPECTED_TAX_AMOUNT), 2)   AS EXPECTED_GST
+FROM TAX.V_GST_DETERMINED
+WHERE JURISDICTION            = 'AU'
+  AND SUPPLY_CATEGORY         = 'PROFESSIONAL_FEES'
+  AND SUPPLIER_GST_REGISTERED = FALSE
+  AND IS_CROSS_BORDER         = TRUE
+  AND DOC_DATE IS NOT NULL
+GROUP BY 1, 2, 3, 4
+ORDER BY 1;</code></pre></div>
+
+<table class="data-table">
+    <thead>
+        <tr><th>Period</th><th>Rule</th><th>Treatment</th><th>Rate</th><th>Lines</th><th>Expected GST</th></tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td>Before 1 Jul 2024</td><td><strong>9</strong></td>
+            <td><code>GST_FREE</code></td><td>0.00%</td>
+            <td>2,429</td><td><strong>$0</strong></td>
+        </tr>
+        <tr>
+            <td>From 1 Jul 2024</td><td><strong>16</strong></td>
+            <td><code>REVERSE_CHARGE</code></td><td>10.00%</td>
+            <td>4,690</td><td><strong>$26,247,261</strong></td>
+        </tr>
+    </tbody>
+</table>
+
+<p>An otherwise identical population, split only by document date, produces two different treatments
+and <strong>$25.5 million</strong> of expected GST on one side of the line that does not exist on the
+other. Nothing in the query decided that. The rows in the rule table decided it.</p>
+
+<div class="info-box warning"><span class="icon">⚠️</span><div><strong>Now make the consequence explicit</strong><p>Had the corrected treatment been hard-coded — a <code>CASE</code> expression saying imported
+professional fees are reverse charged — the <em>before</em> row above would read
+<code>REVERSE_CHARGE</code> at 10.00% as well. Every period already lodged on the old position would
+be silently restated, and the reconciliation in Step 5 would raise variances against returns that
+were correct when they were filed. Effective dating is not bookkeeping neatness. It is the only
+thing standing between you and restating three years of lodged BAS by accident.</p></div></div>
+
+<h3>Block 4 — the moment</h3>
+
+<p>Someone in the room is about to ask what happens when the tax team wants a change. Answer it by
+doing it. Run all three statements in order.</p>
+
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- 1. The tax team wants to model the reverse charge at a different rate.
+--    They change one row of data. Not a query. Not a deployment.
+UPDATE TAX.TAX_RULE_RATE
+   SET RATE_PCT = 15.00
+ WHERE JURISDICTION = 'AU' AND TAX_TREATMENT = 'REVERSE_CHARGE';
+
+-- 2. Exactly the same aggregate as Block 3. Nothing was rebuilt,
+--    nothing was refreshed, nothing was redeployed.
+SELECT APPLIED_RULE_ID,
+       TAX_TREATMENT,
+       APPLIED_RATE_PCT,
+       COUNT(*)                             AS LINE_COUNT,
+       ROUND(SUM(EXPECTED_TAX_AMOUNT), 2)   AS EXPECTED_GST
+FROM TAX.V_GST_DETERMINED
+WHERE JURISDICTION            = 'AU'
+  AND SUPPLY_CATEGORY         = 'PROFESSIONAL_FEES'
+  AND SUPPLIER_GST_REGISTERED = FALSE
+  AND IS_CROSS_BORDER         = TRUE
+  AND DOC_DATE &gt;= '2024-07-01'::DATE
+GROUP BY 1, 2, 3;
+
+-- 3. Put it back. The Australian rate is 10% and has been since 2000.
+UPDATE TAX.TAX_RULE_RATE
+   SET RATE_PCT = 10.00
+ WHERE JURISDICTION = 'AU' AND TAX_TREATMENT = 'REVERSE_CHARGE';</code></pre></div>
+
+<p><code>APPLIED_RATE_PCT</code> now reads 15.00 and the expected GST on those 4,690 lines has risen
+by half, to roughly $38.3 million. Then statement 3 puts it back and the position returns to
+$26,247,261. The group's computed GST position moved twice in about four seconds.</p>
+
+<div class="info-box success"><span class="icon">🔑</span><div><strong>This is ownership, not architecture</strong><p>No code was edited. Nothing was rebuilt, nothing was redeployed, no release was cut and no
+developer was involved. <strong>The person who owns the rule changed the rule.</strong> That is the
+whole point of holding tax logic as data: the people accountable for the position can move the
+position, and everyone else can see exactly what they changed and when it takes effect.</p></div></div>
+
+<h3>Block 5 — the standing exception register</h3>
+
+<p>One view that turns the determined ledger into a work queue: every line that fails a tax test,
+with the reasons concatenated and a risk score to sort by.</p>
+
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>CREATE OR REPLACE VIEW TAX.V_GST_EXCEPTIONS AS
+WITH d AS (SELECT * FROM TAX.V_GST_DETERMINED),
+ex AS (
+    SELECT GL_LINE_ID, 'E1' AS EXCEPTION_CODE, 'MEDIUM' AS SEVERITY,
+           'Account code ' || COALESCE(NATIVE_ACCOUNT_CODE,'?') || ' has no group mapping' AS EXCEPTION_REASON
+    FROM d WHERE NOT IS_ACCOUNT_MAPPED
+    UNION ALL
+    SELECT GL_LINE_ID, 'E2', 'HIGH', 'Document date could not be parsed from the source system'
+    FROM d WHERE NOT IS_DATE_PARSED   -- reachable only because of the LEFT JOIN in V_GST_DETERMINED
+    UNION ALL
+    SELECT GL_LINE_ID, 'E3', 'HIGH', 'Supplier ABN missing on a claimed credit over $82.50'
+    FROM d WHERE SUPPLIER_ABN IS NULL AND DOC_TYPE = 'AP_INVOICE'
+             AND RECOVERABLE AND ABS(GROSS_AMOUNT) &gt; 82.50
+    UNION ALL
+    SELECT GL_LINE_ID, 'E4', 'HIGH', 'GST charged by a supplier that is not GST registered'
+    FROM d WHERE SUPPLIER_GST_REGISTERED = FALSE AND BOOKED_TAX_AMOUNT &lt;&gt; 0
+    UNION ALL
+    SELECT GL_LINE_ID, 'E5', 'MEDIUM',
+           'Booked GST differs from expected by ' || TO_VARCHAR(ROUND(TAX_VARIANCE,2))
+    FROM d WHERE ABS(COALESCE(TAX_VARIANCE, 0)) &gt; 1.00
+    UNION ALL
+    SELECT GL_LINE_ID, 'E6', 'HIGH',
+           'Credit claimed on a non-recoverable treatment (' || TAX_TREATMENT || ')'
+    FROM d WHERE RECOVERABLE = FALSE AND TAX_TREATMENT &lt;&gt; 'NON_DEDUCTIBLE'
+             AND DOC_TYPE = 'AP_INVOICE' AND BOOKED_TAX_AMOUNT &lt;&gt; 0
+    UNION ALL
+    SELECT GL_LINE_ID, 'E7', 'MEDIUM', 'Reverse charge required but not applied in the source system'
+    FROM d WHERE TAX_TREATMENT = 'REVERSE_CHARGE'
+             AND COALESCE(BOOKED_TAX_CODE,'') NOT IN ('RC','REVERSE_CHARGE')
+)
+SELECT
+    d.GL_LINE_ID, d.ENTITY_ID, d.ENTITY_NAME, d.TAX_PERIOD,
+    d.SUPPLIER_ID, d.SUPPLIER_NAME,
+    d.SOURCE_SYSTEM, d.SOURCE_DOC_REF, d.DOC_TYPE, d.SUPPLY_CATEGORY,
+    d.NET_AMOUNT, d.BOOKED_TAX_AMOUNT, d.EXPECTED_TAX_AMOUNT, d.TAX_VARIANCE,
+    d.TAX_TREATMENT, d.APPLIED_RULE_ID,
+    COUNT(*)                                                        AS EXCEPTION_COUNT,
+    LISTAGG(DISTINCT ex.EXCEPTION_CODE, ', ')
+        WITHIN GROUP (ORDER BY ex.EXCEPTION_CODE)                   AS EXCEPTION_CODES,
+    LISTAGG(ex.EXCEPTION_REASON, ' | ')
+        WITHIN GROUP (ORDER BY ex.EXCEPTION_CODE)                   AS EXCEPTION_REASONS,
+    CASE MAX(CASE ex.SEVERITY WHEN 'HIGH' THEN 3 WHEN 'MEDIUM' THEN 2 ELSE 1 END)
+         WHEN 3 THEN 'HIGH' WHEN 2 THEN 'MEDIUM' ELSE 'LOW' END     AS MAX_SEVERITY,
+    ROUND(COUNT(*) * 10
+          + LEAST(ABS(COALESCE(d.TAX_VARIANCE, 0)) / 100, 50), 2)   AS RISK_SCORE
+FROM ex
+JOIN d ON d.GL_LINE_ID = ex.GL_LINE_ID
+GROUP BY ALL;
+
+-- The work queue: worst first.
+SELECT GL_LINE_ID, ENTITY_NAME, TAX_PERIOD, SUPPLIER_NAME,
+       SUPPLY_CATEGORY, TAX_TREATMENT, APPLIED_RULE_ID,
+       NET_AMOUNT, BOOKED_TAX_AMOUNT, EXPECTED_TAX_AMOUNT, TAX_VARIANCE,
+       EXCEPTION_COUNT, EXCEPTION_CODES, MAX_SEVERITY, RISK_SCORE
+FROM TAX.V_GST_EXCEPTIONS
+ORDER BY RISK_SCORE DESC
+LIMIT 50;</code></pre></div>
+
+<p>That is a standing exception register: seven tax tests over the whole ledger, always current,
+always sorted worst-first.</p>
+
+<table class="data-table">
+    <thead>
+        <tr><th>Code</th><th>Test</th><th>Lines</th></tr>
+    </thead>
+    <tbody>
+        <tr><td><code>E1</code></td><td>Account code has no group mapping</td><td>77,484</td></tr>
+        <tr><td><code>E2</code></td><td>Document date could not be parsed</td><td>8,088</td></tr>
+        <tr><td><code>E3</code></td><td>Supplier ABN missing on a claimed credit over $82.50</td><td>60,097</td></tr>
+        <tr><td><code>E4</code></td><td>GST charged by a supplier that is not registered</td><td>31,039</td></tr>
+        <tr><td><code>E5</code></td><td>Booked GST differs from expected by more than $1</td><td>107,808</td></tr>
+        <tr><td><code>E6</code></td><td>Credit claimed on a non-recoverable treatment</td><td>36,718</td></tr>
+        <tr><td><code>E7</code></td><td>Reverse charge required but not applied at source</td><td>11,754</td></tr>
+        <tr><td colspan="2"><strong>Distinct ledger lines flagged</strong></td><td><strong>253,394 — 10.56% of the ledger</strong></td></tr>
+    </tbody>
+</table>
+
+<p>A line can fail more than one test, which is why the code counts sum to more than 253,394 and why
+<code>EXCEPTION_COUNT</code> feeds the risk score. Note that <code>E2</code> returns exactly the
+8,088 unparseable dates from Step 3 — the left join in Block 2 is what allowed those lines to reach
+this register at all. Lab 2 comes back to this queue and uses Cortex to explain each flagged line in
+plain English.</p>
+
+<div class="info-box success"><span class="icon">✅</span><div><strong>What you just built</strong><p>Sixteen determination rules and nineteen rates, held as data the tax team owns and can change
+without a developer; a thin generic view that applies whichever rules were in force on the date of
+each transaction; and a standing exception register over 2,400,000 ledger lines.</p></div></div>
+
+<h3>This is one rule set, not <em>the</em> rule set</h3>
+
+<div style="margin: 28px 0; padding: 28px 20px; background: #F7FAFC; border: 1px solid #E1E8ED; border-radius: 8px;">
+
+    <div style="display: flex; justify-content: center;">
+        <div style="background: #11567F; color: #FFFFFF; border-radius: 6px; padding: 16px 26px; text-align: center; max-width: 380px;">
+            <div style="font-family: Montserrat, sans-serif; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; font-size: 0.9rem;">CURATED.GL_HARMONISED</div>
+            <div style="font-size: 0.82rem; margin-top: 6px; opacity: 0.92;">one conformed ledger &middot; contains no tax logic</div>
+            <div style="font-size: 0.78rem; margin-top: 6px; font-style: italic; opacity: 0.85;">you built this</div>
+        </div>
+    </div>
+
+    <div style="display: flex; justify-content: center;">
+        <div style="width: 2px; height: 26px; background: #C9C9C9;"></div>
+    </div>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; align-items: stretch;">
+
+        <div style="background: #29B5E8; color: #FFFFFF; border-radius: 6px; padding: 14px 10px; text-align: center; min-width: 116px; flex: 0 1 130px;">
+            <div style="font-family: Montserrat, sans-serif; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; font-size: 0.85rem;">GST</div>
+            <div style="font-size: 0.78rem; margin-top: 4px;">rules</div>
+            <div style="font-size: 0.72rem; margin-top: 10px; font-weight: 700; letter-spacing: 0.5px;">BUILT</div>
+        </div>
+
+        <div style="background: #FFFFFF; border: 1px solid #C9C9C9; color: #9A9A9A; border-radius: 6px; padding: 14px 10px; text-align: center; min-width: 116px; flex: 0 1 130px;">
+            <div style="font-family: Montserrat, sans-serif; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; font-size: 0.85rem;">FBT</div>
+            <div style="font-size: 0.78rem; margin-top: 4px;">rules</div>
+            <div style="font-size: 0.72rem; margin-top: 10px; letter-spacing: 0.5px;">next</div>
+        </div>
+
+        <div style="background: #FFFFFF; border: 1px solid #C9C9C9; color: #9A9A9A; border-radius: 6px; padding: 14px 10px; text-align: center; min-width: 116px; flex: 0 1 130px;">
+            <div style="font-family: Montserrat, sans-serif; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; font-size: 0.85rem;">Fuel tax</div>
+            <div style="font-size: 0.78rem; margin-top: 4px;">credits</div>
+            <div style="font-size: 0.72rem; margin-top: 10px; letter-spacing: 0.5px;">next</div>
+        </div>
+
+        <div style="background: #FFFFFF; border: 1px solid #C9C9C9; color: #9A9A9A; border-radius: 6px; padding: 14px 10px; text-align: center; min-width: 116px; flex: 0 1 130px;">
+            <div style="font-family: Montserrat, sans-serif; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; font-size: 0.85rem;">Payroll</div>
+            <div style="font-size: 0.78rem; margin-top: 4px;">tax</div>
+            <div style="font-size: 0.72rem; margin-top: 10px; letter-spacing: 0.5px;">next</div>
+        </div>
+
+        <div style="background: #FFFFFF; border: 1px solid #C9C9C9; color: #9A9A9A; border-radius: 6px; padding: 14px 10px; text-align: center; min-width: 116px; flex: 0 1 130px;">
+            <div style="font-family: Montserrat, sans-serif; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; font-size: 0.85rem;">Withholding</div>
+            <div style="font-size: 0.78rem; margin-top: 4px;">tax</div>
+            <div style="font-size: 0.72rem; margin-top: 10px; letter-spacing: 0.5px;">next</div>
+        </div>
+
+    </div>
+</div>
+
+<p>What you built is not "the tax rules". It is <strong>one rule set, for one tax</strong>, sitting
+beside a ledger that knows nothing about GST — which is exactly why tax logic was kept out of the
+curated layer in Step 3.</p>
+
+<p>Every other indirect tax your practice touches has the same shape: rules the business owns,
+effective-dated, applied by thin generic SQL. Fuel tax credits reindex twice a year. Payroll tax is
+eight jurisdictions, each with its own rate, threshold and grouping rules. Withholding tax is a
+treaty rate by country and income type. Same pattern, different table.</p>
+
+<p><strong>The ledger is bespoke to the client. The rule sets are not.</strong> The payroll tax rule
+set you build for one client is most of the payroll tax rule set for the next one.</p>
+
+<div class="info-box success"><span class="icon">💼</span><div><strong>The commercial point</strong><p>Most of this work today is billed by the hour and thrown away when the engagement closes. Build it
+this way and the rule libraries become your firm's own intellectual property — something you deploy
+repeatedly rather than rebuild from scratch for every client.</p></div></div>
+
+<div class="info-box warning"><span class="icon">⚠️</span><div><strong>The honest boundary</strong><p>Not everything is a rule table. Anything requiring iterative or circular computation needs
+procedural logic — thin capitalisation, Pillar Two top-up calculations, and consolidation
+eliminations with circular ownership are all in that category. Say so plainly. Acknowledging where
+the pattern stops is what makes the claim credible everywhere else.</p></div></div>

@@ -1,0 +1,47 @@
+<p>Everything built across both labs lives in two databases, one warehouse and — if you completed
+the sharing optional in Lab 1 — one share. This removes all of it.</p>
+
+<div class="info-box warning"><span class="icon">⚠️</span><div><strong>This is irreversible beyond the Time Travel window</strong><p>Dropping a database starts its Time Travel clock, and <code>UNDROP DATABASE</code> works only
+until the retention period expires. Past that point the objects, the 2.4 million ledger lines,
+the rule tables and every view over them are gone with no recovery path. Run this only when you
+have finished with the environment. If you want to keep the work and stop the compute cost, run
+<code>ALTER WAREHOUSE GSI_TAX_WH SUSPEND;</code> instead and leave the databases in place — a
+suspended warehouse consumes no credits, and the storage cost of 57 MB is negligible.</p></div></div>
+
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- Drop the share first. A share cannot be dropped implicitly with the
+-- database it grants on, and leaving it behind leaves a dangling grant.
+DROP SHARE IF EXISTS GSI_TAX_AUDIT_SHARE;
+
+-- The scenario clone from Lab 1 Optional. Harmless if it was already dropped
+-- at the end of that step, or never created.
+DROP DATABASE IF EXISTS GSI_TAX_SCENARIO;
+
+-- The workshop itself: all seven schemas, the Dynamic Table, every view,
+-- the rule tables and the Streamlit app object.
+DROP DATABASE IF EXISTS GSI_TAX_WORKSHOP;
+
+-- The warehouse last, so the statements above have compute to run on.
+DROP WAREHOUSE IF EXISTS GSI_TAX_WH;
+
+-- Confirm. Both queries should return zero rows.
+SHOW DATABASES LIKE 'GSI_TAX%';
+SHOW WAREHOUSES LIKE 'GSI_TAX%';</code></pre></div>
+
+<p>Every statement uses <code>IF EXISTS</code>, so the block runs clean whether or not you
+completed the optional steps. Dropping <code>GSI_TAX_WORKSHOP</code> takes the Streamlit app
+with it, because the app object lives in the <code>APPS</code> schema.</p>
+
+<div class="info-box"><span class="icon">💡</span><div><strong>The agent and the semantic views need removing separately</strong><p><code>GST_COMPLIANCE_AGENT</code> was created through Snowsight and is not an object inside
+<code>GSI_TAX_WORKSHOP</code>, so dropping the database does not remove it. Open
+<strong>AI &amp; ML &rarr; Agents</strong>, select the agent and delete it there. Do the same for
+any semantic view you created through <strong>AI &amp; ML &rarr; Cortex Analyst</strong> —
+<code>SV_GST_COMPLIANCE</code>, and <code>SV_SUPPLIER_RISK</code> if you built the second tool.
+An agent left pointing at a dropped semantic view will not cost anything, but it will fail
+confusingly for the next person who finds it.</p></div></div>
+
+<div class="info-box success"><span class="icon">✅</span><div><strong>What you take with you</strong><p>The environment is disposable; the pattern is not. Three source systems conformed into one
+ledger that holds no tax logic, an effective-dated rule set the tax team owns, a determination
+layer thin enough to audit, exceptions ranked by risk, and language models supplying the
+attributes the rules were missing rather than replacing the rules. Rebuild it against your
+client's ledger and the shape does not change — only the source branches and the rule rows
+do.</p></div></div>

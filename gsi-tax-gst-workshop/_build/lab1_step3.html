@@ -1,0 +1,269 @@
+<p>In Step 2 you proved that no single source system can answer the question. This step fixes that
+permanently. One object, every line from every system in one shape, with the dimensions attached
+and the data-quality problems labelled rather than hidden.</p>
+
+<ul class="learning-list">
+    <li>Parse three different date formats without the query dying on the bad rows.</li>
+    <li>Conform three amount conventions into one signed net amount.</li>
+    <li>Resolve three entity identifier schemes to one group entity.</li>
+    <li>Build one Dynamic Table that keeps itself up to date as the source systems change.</li>
+</ul>
+
+<h3>Block 1 — the date problem, and the one-word fix</h3>
+
+<p>The legacy AP system stores its document date as text in <code>DD/MM/YYYY</code>. About 2% of
+those 400,000 values cannot be parsed at all: some are <code>'N/A'</code>, some are empty strings,
+and some are dates that look plausible but do not exist — <code>'31/02/2024'</code> among them.
+Run both statements below in order.</p>
+
+<div class="info-box warning"><span class="icon">&#9888;&#65039;</span><div><strong>This cell is meant to fail</strong><p>Run it anyway. The error is the teaching point, and the next cell fixes it. You have not broken anything &mdash; expect a red cell and read the message.</p></div></div>
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- 1. The strict parser. This is EXPECTED TO FAIL - that is the lesson.
+--    TO_DATE does not skip the bad rows and it does not return NULL for
+--    them. One unparseable value out of 400,000 fails the entire query.
+SELECT MIN(TO_DATE(txn_dt, 'DD/MM/YYYY')) AS EARLIEST_DOC_DATE
+FROM RAW_DATA.ERP_LEGACY_AP;
+
+-- 2. The tolerant parser. Same column, same format mask, one word
+--    different. Every row survives. The values that cannot be parsed
+--    arrive as NULL, which means they can be counted, reported and
+--    chased instead of taking the pipeline down with them.
+SELECT txn_dt                            AS RAW_VALUE,
+       TRY_TO_DATE(txn_dt, 'DD/MM/YYYY') AS TOLERANT_PARSE,
+       COUNT(*)                          AS LINE_COUNT
+FROM RAW_DATA.ERP_LEGACY_AP
+WHERE TRY_TO_DATE(txn_dt, 'DD/MM/YYYY') IS NULL
+GROUP BY 1, 2
+ORDER BY 3 DESC;</code></pre></div>
+
+<p>Statement 1 stops with <code>Can't parse '' as date with format 'DD/MM/YYYY'</code>. One empty
+string, out of 400,000 rows, and there is no result at all — no partial answer, no list of the rows
+at fault. Statement 2 returns the three shapes that break it:</p>
+
+<table class="data-table">
+    <thead>
+        <tr><th>Raw value</th><th>Tolerant parse</th><th>Lines</th><th>Why it fails</th></tr>
+    </thead>
+    <tbody>
+        <tr><td><code>N/A</code></td><td><code>NULL</code></td><td>2,799</td><td>Not a date at all — an operator typed a placeholder.</td></tr>
+        <tr><td><code>31/02/2024</code></td><td><code>NULL</code></td><td>2,871</td><td>Correctly formatted and still impossible: February has no 31st.</td></tr>
+        <tr><td><em>(empty string)</em></td><td><code>NULL</code></td><td>2,418</td><td>The field was never populated.</td></tr>
+        <tr><td colspan="2"><strong>Total unparseable</strong></td><td><strong>8,088</strong></td><td>2.02% of the legacy ledger.</td></tr>
+    </tbody>
+</table>
+
+<p>The middle case is the instructive one. <code>31/02/2024</code> passes any format check, any
+regular expression and any length validation you might write — it is only invalid because that day
+does not exist. A calendar-aware parser catches it; pattern matching never will.</p>
+
+<div class="info-box"><span class="icon">💡</span><div><strong>The distinction that matters</strong><p><code>TO_DATE</code> asserts that the data is clean. <code>TRY_TO_DATE</code> asserts nothing and
+tells you where it is not. In a tax pipeline the second behaviour is the only defensible one: a
+line you cannot date is a line whose treatment you cannot determine, and you need it visible in an
+exception report rather than absent from a return. Every <code>TRY_TO_*</code> function in Snowflake
+behaves the same way, and this pattern is the single most immediately useful thing many attendees
+will take home.</p></div></div>
+
+<h3>What has to be conformed, and why</h3>
+
+<p>The three systems disagree on more than dates. They disagree about how an amount is signed,
+what an amount includes, and how a legal entity is named. None of that can be left to the person
+writing the next query.</p>
+
+<table class="data-table">
+    <thead>
+        <tr><th>Source</th><th>Document date</th><th>Amount convention</th><th>Entity identifier</th></tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td><strong>SAP</strong></td>
+            <td><code>BUDAT</code> — text, <code>YYYYMMDD</code></td>
+            <td>Signed amount in <code>DMBTR</code>, tax carried separately in <code>MWSTS</code></td>
+            <td><code>BUKRS</code> company code</td>
+        </tr>
+        <tr>
+            <td><strong>Oracle</strong></td>
+            <td><code>GL_DATE</code> — native <code>DATE</code>, no parsing needed</td>
+            <td>Separate debit and credit columns, netted as <code>ENTERED_DR - ENTERED_CR</code></td>
+            <td><code>LEDGER_ID</code></td>
+        </tr>
+        <tr>
+            <td><strong>Legacy AP</strong></td>
+            <td><code>txn_dt</code> — text, <code>DD/MM/YYYY</code>, ~2% unparseable</td>
+            <td>GST-<strong>inclusive</strong> gross; net recovered as <code>amt_incl_tax - tax_amt</code></td>
+            <td><code>entity_cd</code></td>
+        </tr>
+    </tbody>
+</table>
+
+<p>The amount conventions are the quietest of the three defects and the most dangerous. A signed
+amount, a debit-minus-credit pair and a GST-inclusive gross are all "the amount" to the system that
+produced them. Add them together untouched and the total is meaningless — and it will still look
+like a number, which is why nobody catches it. Each branch of the union below normalises to the same
+definition: <code>NET_AMOUNT</code> is always net of GST, and <code>BOOKED_TAX_AMOUNT</code> is
+always the tax the source system actually posted.</p>
+
+<p>The entity crosswalk works the same way. <code>DIM_LEGAL_ENTITY</code> holds one row per group
+entity carrying all three identifiers — <code>SAP_BUKRS</code>, <code>ORACLE_LEDGER_ID</code> and
+<code>LEGACY_ENTITY_CD</code>. The <code>ent_xwalk</code> CTE unpivots that once into
+<code>(SOURCE_SYSTEM, SRC_ENTITY) &rarr; ENTITY_ID</code>, so the union can be joined a single time
+on a single pair of columns instead of carrying a three-branch <code>OR</code> condition. One group
+entity, three names, resolved in one place.</p>
+
+<h3>Block 2 — build the governed ledger</h3>
+
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>CREATE OR REPLACE DYNAMIC TABLE CURATED.GL_HARMONISED
+    TARGET_LAG = '1 hour'
+    WAREHOUSE  = GSI_TAX_WH
+    REFRESH_MODE = AUTO
+AS
+WITH ent_xwalk AS (
+    -- Unpivot the crosswalk once: three ERP identifiers, one group entity.
+    SELECT ENTITY_ID, 'SAP'    AS SOURCE_SYSTEM, SAP_BUKRS        AS SRC_ENTITY
+      FROM RAW_DATA.DIM_LEGAL_ENTITY WHERE SAP_BUKRS        IS NOT NULL
+    UNION ALL
+    SELECT ENTITY_ID, 'ORACLE', ORACLE_LEDGER_ID FROM RAW_DATA.DIM_LEGAL_ENTITY
+     WHERE ORACLE_LEDGER_ID IS NOT NULL
+    UNION ALL
+    SELECT ENTITY_ID, 'LEGACY', LEGACY_ENTITY_CD FROM RAW_DATA.DIM_LEGAL_ENTITY
+     WHERE LEGACY_ENTITY_CD IS NOT NULL
+),
+u AS (
+    -- SAP: signed amounts, YYYYMMDD text dates
+    SELECT 'SAP' AS SOURCE_SYSTEM, BELNR AS SOURCE_DOC_REF, BUZEI AS SOURCE_LINE_NUM,
+           BUKRS AS SRC_ENTITY, HKONT AS NATIVE_ACCOUNT_CODE,
+           TRY_TO_DATE(BUDAT, 'YYYYMMDD') AS DOC_DATE, DOC_TYPE,
+           DMBTR AS NET_AMOUNT, MWSTS AS BOOKED_TAX_AMOUNT,
+           WAERS AS CURRENCY, MWSKZ AS BOOKED_TAX_CODE,
+           LIFNR AS SUPPLIER_ID, SGTXT AS LINE_NARRATIVE
+    FROM RAW_DATA.ERP_SAP_GL
+    UNION ALL
+    -- Oracle: native DATE, separate DR/CR columns
+    SELECT 'ORACLE', JE_HEADER_ID::VARCHAR, JE_LINE_NUM,
+           LEDGER_ID, CODE_COMBINATION,
+           GL_DATE, DOC_TYPE,
+           COALESCE(ENTERED_DR, 0) - COALESCE(ENTERED_CR, 0), TAX_AMOUNT,
+           CURRENCY_CODE, TAX_CLASSIFICATION,
+           VENDOR_ID, DESCRIPTION
+    FROM RAW_DATA.ERP_ORACLE_GL
+    UNION ALL
+    -- Legacy: DD/MM/YYYY text dates, GST-INCLUSIVE amounts (gross up removed)
+    SELECT 'LEGACY', doc_ref, 1,
+           entity_cd, acct,
+           TRY_TO_DATE(txn_dt, 'DD/MM/YYYY'), doc_type,
+           amt_incl_tax - tax_amt, tax_amt,
+           curr_cd, tax_flag,
+           vendor_ref, narrative
+    FROM RAW_DATA.ERP_LEGACY_AP
+)
+SELECT
+    u.SOURCE_SYSTEM || '-' || u.SOURCE_DOC_REF || '-' || u.SOURCE_LINE_NUM::VARCHAR AS GL_LINE_ID,
+    u.SOURCE_SYSTEM, u.SOURCE_DOC_REF, u.SOURCE_LINE_NUM,
+    x.ENTITY_ID, e.ENTITY_NAME, e.JURISDICTION, e.ABN AS ENTITY_ABN,
+    u.DOC_DATE,
+    DATE_TRUNC('month', u.DOC_DATE)                              AS TAX_PERIOD,
+    u.DOC_TYPE,
+    u.NATIVE_ACCOUNT_CODE,
+    m.GROUP_ACCOUNT_CODE, m.GROUP_ACCOUNT_NAME, m.SUPPLY_CATEGORY,
+    u.SUPPLIER_ID, s.SUPPLIER_NAME, s.SUPPLIER_ABN,
+    s.GST_REGISTERED                                             AS SUPPLIER_GST_REGISTERED,
+    s.SUPPLIER_COUNTRY,
+    (s.SUPPLIER_COUNTRY &lt;&gt; e.JURISDICTION)                       AS IS_CROSS_BORDER,
+    u.CURRENCY,
+    u.NET_AMOUNT,
+    u.BOOKED_TAX_AMOUNT,
+    u.NET_AMOUNT + u.BOOKED_TAX_AMOUNT                           AS GROSS_AMOUNT,
+    u.BOOKED_TAX_CODE,
+    u.LINE_NARRATIVE,
+    -- conformance flags: is the DATA complete? (not: is the TAX right?)
+    (u.DOC_DATE          IS NOT NULL)                            AS IS_DATE_PARSED,
+    (x.ENTITY_ID         IS NOT NULL)                            AS IS_ENTITY_RESOLVED,
+    (m.SUPPLY_CATEGORY   IS NOT NULL)                            AS IS_ACCOUNT_MAPPED,
+    (s.SUPPLIER_ID       IS NOT NULL)                            AS IS_SUPPLIER_RESOLVED
+FROM u
+LEFT JOIN ent_xwalk x
+       ON x.SOURCE_SYSTEM = u.SOURCE_SYSTEM AND x.SRC_ENTITY = u.SRC_ENTITY
+LEFT JOIN RAW_DATA.DIM_LEGAL_ENTITY e   ON e.ENTITY_ID = x.ENTITY_ID
+LEFT JOIN RAW_DATA.DIM_ACCOUNT_MAPPING m
+       ON m.SOURCE_SYSTEM = u.SOURCE_SYSTEM AND m.NATIVE_ACCOUNT_CODE = u.NATIVE_ACCOUNT_CODE
+LEFT JOIN RAW_DATA.DIM_SUPPLIER s       ON s.SUPPLIER_ID = u.SUPPLIER_ID;</code></pre></div>
+
+<p>Notice the shape: three <code>SELECT</code> branches unioned inside a CTE, then the dimension
+joins applied <strong>once</strong> over the union rather than repeated per branch. Add a fourth
+source system and you add one branch and one crosswalk row. Nothing else in the statement changes.</p>
+
+<p>Notice also that every dimension join is a <code>LEFT JOIN</code>. An inner join here would
+quietly delete the lines with an unmapped account code, and those are precisely the lines the tax
+team needs to see. The four conformance flags at the bottom exist so that incompleteness is recorded
+as a fact about the row rather than resolved by dropping it.</p>
+
+<div class="info-box"><span class="icon">🔑</span><div><strong>The account mapping is a JOIN, not a CASE statement</strong><p><code>SUPPLY_CATEGORY</code> arrives from <code>DIM_ACCOUNT_MAPPING</code> through a join on
+<code>(SOURCE_SYSTEM, NATIVE_ACCOUNT_CODE)</code>. It would have been shorter to write a
+<code>CASE</code> expression listing account codes inline, and it would have been wrong. The tax
+team owns that mapping. When a new account is opened in the chart of accounts, they need to add a
+row to a table — not raise a change request, wait for a developer, and wait again for a release.
+This is the same principle Step 4 applies to the tax rules themselves, appearing here for the
+first time.</p></div></div>
+
+<p>One more thing this table deliberately does not contain: any tax logic. There are no rates, no
+treatments and no judgements about whether GST was handled correctly. That is because the same
+conformed ledger feeds statutory reporting, management reporting and tax, and the moment a tax
+assumption is baked into it, the other two consumers inherit it silently.</p>
+
+<div class="info-box success"><span class="icon">⚡</span><div><strong>What one CREATE statement just bought you</strong><p>That single statement produced a working pipeline: it unions three source systems, resolves four
+dimensions and labels four data-quality conditions across <strong>2,400,000 rows</strong> — and it
+keeps itself up to date as the sources change. There is no scheduler to configure, no orchestration
+tool to install, no dependency graph to maintain by hand and nothing to deploy. You declared the
+result you wanted; Snowflake works out how to keep it true.</p></div></div>
+
+<p>Three things worth doing on screen before you move on, none of which needs a query.
+First, open <strong>Monitoring &rarr; Dynamic Tables</strong> in Snowsight: the refresh history and
+the dependency graph are already there, because the pipeline draws its own diagram.
+Second, when you run Block 3 below, open the <strong>Query Profile</strong> tab on the result — a
+visual execution plan with partition pruning statistics, for free, on a query you were running
+anyway.
+Third, run Block 3 a second time: it returns instantly from the result cache and consumes no
+compute at all.</p>
+
+<h3>Block 3 — one query that verifies the whole build</h3>
+
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>SELECT COUNT(*)                                                    AS TOTAL_ROWS,
+       COUNT(DISTINCT GL_LINE_ID)                                  AS DISTINCT_LINES,
+       ROUND(100.0 * SUM(IFF(IS_DATE_PARSED, 1, 0))      / COUNT(*), 2) AS PCT_DATE_OK,
+       ROUND(100.0 * SUM(IFF(IS_ENTITY_RESOLVED, 1, 0))  / COUNT(*), 2) AS PCT_ENTITY_OK,
+       ROUND(100.0 * SUM(IFF(IS_ACCOUNT_MAPPED, 1, 0))   / COUNT(*), 2) AS PCT_ACCOUNT_OK,
+       ROUND(100.0 * SUM(IFF(IS_SUPPLIER_RESOLVED, 1, 0))/ COUNT(*), 2) AS PCT_SUPPLIER_OK
+FROM CURATED.GL_HARMONISED;</code></pre></div>
+
+<table class="data-table">
+    <thead>
+        <tr><th>Measure</th><th>Result</th><th>What it tells you</th></tr>
+    </thead>
+    <tbody>
+        <tr><td><code>TOTAL_ROWS</code></td><td><strong>2,400,000</strong></td><td>1,200,000 SAP + 800,000 Oracle + 400,000 legacy. Nothing lost.</td></tr>
+        <tr><td><code>DISTINCT_LINES</code></td><td><strong>2,400,000</strong></td><td>Identical to the row count, so no dimension join has duplicated a line.</td></tr>
+        <tr><td><code>PCT_DATE_OK</code></td><td><strong>99.66%</strong></td><td>The 0.34% shortfall is the unparseable legacy dates, now flagged rather than lost.</td></tr>
+        <tr><td><code>PCT_ENTITY_OK</code></td><td><strong>100.00%</strong></td><td>Every line resolved to a group entity through the crosswalk.</td></tr>
+        <tr><td><code>PCT_ACCOUNT_OK</code></td><td><strong>96.77%</strong></td><td>3.23% of the ledger carries an account code nobody has mapped.</td></tr>
+        <tr><td><code>PCT_SUPPLIER_OK</code></td><td><strong>100.00%</strong></td><td>Every line resolved to a supplier record.</td></tr>
+    </tbody>
+</table>
+
+<div class="info-box warning"><span class="icon">⚠️</span><div><strong>The fan-out check is not a formality</strong><p><code>COUNT(*) = COUNT(DISTINCT GL_LINE_ID)</code> is the assertion that no join multiplied a
+ledger line. If a dimension table ever gains a duplicate key, this is the number that moves — and
+it moves before anyone notices that the GST total has grown. Keep it in the verification query
+permanently. That 3.23% unmapped is roughly 77,500 lines whose supply category is unknown; you will
+see them again in Step 4 as the largest single category in the exception register.</p></div></div>
+
+<h3>Block 4 — inspect the object you created</h3>
+
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>SHOW DYNAMIC TABLES IN SCHEMA CURATED;</code></pre></div>
+
+<p>Read across the row: the target lag you declared, the warehouse that maintains it, the scheduling
+state and the refresh mode Snowflake actually chose. You asked for <code>REFRESH_MODE = AUTO</code>,
+which means the platform decides how to keep the table current rather than you deciding for it —
+so read what it reports rather than assuming a value. <code>TARGET_LAG</code> is a freshness
+objective, not a schedule: it is a promise about how stale the data may become, not an instruction
+to run at a fixed time.</p>
+
+<div class="info-box success"><span class="icon">✅</span><div><strong>Where you are</strong><p>One governed ledger, 2,400,000 lines, three source systems, four dimensions resolved and four
+data-quality conditions labelled. It contains no tax logic whatsoever — and that is what makes the
+next step possible.</p></div></div>

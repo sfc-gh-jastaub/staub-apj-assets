@@ -1,0 +1,268 @@
+<p>The control tower you built in Lab 1 shows the tax team what is wrong. It does not help them
+work through it, because the one thing a reviewer needs in front of them — why this line was
+flagged, in words, and which rule decided it — was not available until Step 4 of this lab.</p>
+
+<p>This is the same app with a fourth tab. Replace the whole file: open your Streamlit app in
+Snowsight (<strong>Projects &rarr; Streamlit</strong>), select all of the existing code, and
+paste this over it.</p>
+
+<ul class="learning-list">
+    <li>Put the generated working paper in front of the reviewer, beside the rule that fired.</li>
+    <li>Capture an approve or reject decision per exception.</li>
+    <li>Keep every query an aggregate or a bounded read, against a 2.4 million line ledger.</li>
+</ul>
+
+<div class="code-block"><div class="code-header"><span class="code-lang">python</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>import pandas as pd
+import streamlit as st
+from snowflake.snowpark.context import get_active_session
+
+st.set_page_config(page_title="GST Control Tower", layout="wide")
+
+# Streamlit in Snowflake hands you the session. Never build a connection.
+session = get_active_session()
+
+DB = "GSI_TAX_WORKSHOP"
+
+
+# ----------------------------------------------------------------------------
+# Cached queries. Every one of these aggregates or bounds its result set - none
+# of them scans 2.4 million rows back to the browser.
+# ----------------------------------------------------------------------------
+@st.cache_data(ttl=600)
+def load_group_totals():
+    return session.sql(f"""
+        SELECT SUM(COMPUTED_NET_GST)                        AS COMPUTED_NET_GST,
+               SUM(LODGED_NET_GST)                          AS LODGED_NET_GST,
+               SUM(VARIANCE_NET)                            AS VARIANCE_NET,
+               COUNT(*)                                     AS ENTITY_PERIODS,
+               SUM(IFF(RECON_STATUS = 'MATCHED', 1, 0))     AS MATCHED,
+               SUM(IFF(RECON_STATUS = 'INVESTIGATE', 1, 0)) AS INVESTIGATE
+        FROM {DB}.TAX.V_GST_VS_BAS
+    """).to_pandas()
+
+
+@st.cache_data(ttl=600)
+def load_reconciliation():
+    return session.sql(f"""
+        SELECT ENTITY_NAME, TAX_PERIOD, COMPUTED_NET_GST, LODGED_NET_GST,
+               VARIANCE_NET, VARIANCE_PCT, RECON_STATUS
+        FROM {DB}.TAX.V_GST_VS_BAS
+        ORDER BY ABS(VARIANCE_NET) DESC
+    """).to_pandas()
+
+
+@st.cache_data(ttl=600)
+def load_exception_summary():
+    return session.sql(f"""
+        SELECT MAX_SEVERITY,
+               COUNT(*)              AS LINE_COUNT,
+               SUM(ABS(TAX_VARIANCE)) AS ABS_VARIANCE
+        FROM {DB}.TAX.V_GST_EXCEPTIONS
+        GROUP BY 1
+    """).to_pandas()
+
+
+@st.cache_data(ttl=600)
+def load_exceptions(severity, limit):
+    where = "" if severity == "ALL" else f"WHERE MAX_SEVERITY = '{severity}'"
+    return session.sql(f"""
+        SELECT GL_LINE_ID, ENTITY_NAME, TAX_PERIOD, SUPPLIER_NAME,
+               SUPPLY_CATEGORY, TAX_TREATMENT, APPLIED_RULE_ID,
+               NET_AMOUNT, BOOKED_TAX_AMOUNT, EXPECTED_TAX_AMOUNT,
+               TAX_VARIANCE, EXCEPTION_CODES, MAX_SEVERITY, RISK_SCORE
+        FROM {DB}.TAX.V_GST_EXCEPTIONS
+        {where}
+        ORDER BY RISK_SCORE DESC
+        LIMIT {int(limit)}
+    """).to_pandas()
+
+
+@st.cache_data(ttl=600)
+def load_heatmap():
+    return session.sql(f"""
+        SELECT ENTITY_NAME, TAX_PERIOD, COUNT(*) AS EXCEPTION_LINES
+        FROM {DB}.TAX.V_GST_EXCEPTIONS
+        GROUP BY 1, 2
+    """).to_pandas()
+
+
+@st.cache_data(ttl=600)
+def load_ai_queue():
+    # 25 rows, generated in Step 4. If you named the generated column something
+    # else in your own view, change AI_WORKING_PAPER to match it.
+    return session.sql(f"""
+        SELECT GL_LINE_ID, ENTITY_NAME, SUPPLIER_NAME, EXCEPTION_CODES,
+               MAX_SEVERITY, TAX_VARIANCE, APPLIED_RULE_ID,
+               APPLIED_RULE_DESCRIPTION, AI_WORKING_PAPER
+        FROM {DB}.AI_INSIGHTS.V_AI_EXCEPTION_RATIONALE
+        ORDER BY MAX_SEVERITY, ABS(TAX_VARIANCE) DESC
+    """).to_pandas()
+
+
+def money(value):
+    return f"${value:,.0f}"
+
+
+# ----------------------------------------------------------------------------
+# Header tiles
+# ----------------------------------------------------------------------------
+st.title("GST Control Tower")
+st.caption("One governed ledger, the group GST position, and the review queue.")
+
+totals = load_group_totals().iloc[0]
+severity = load_exception_summary()
+
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("Computed net GST", money(totals["COMPUTED_NET_GST"]))
+c2.metric("Lodged net GST", money(totals["LODGED_NET_GST"]))
+c3.metric("Net variance", money(totals["VARIANCE_NET"]),
+          delta=f"{int(totals['INVESTIGATE'])} to investigate", delta_color="inverse")
+c4.metric("Exception lines", f"{int(severity['LINE_COUNT'].sum()):,}")
+
+tab_bas, tab_exc, tab_heat, tab_ai = st.tabs(
+    ["BAS reconciliation", "Exception register", "Entity heatmap", "AI review queue"]
+)
+
+
+# ----------------------------------------------------------------------------
+# Tab 1 - BAS reconciliation
+# ----------------------------------------------------------------------------
+with tab_bas:
+    st.subheader("Computed against lodged, by entity and period")
+    recon = load_reconciliation()
+
+    def rag(row):
+        colour = {"MATCHED": "#E8F7EE",
+                  "REVIEW": "#FFF6E0",
+                  "INVESTIGATE": "#FDE8E8"}.get(row["RECON_STATUS"], "")
+        return [f"background-color: {colour}"] * len(row)
+
+    st.dataframe(
+        recon.style.apply(rag, axis=1).format(
+            {"COMPUTED_NET_GST": "{:,.2f}", "LODGED_NET_GST": "{:,.2f}",
+             "VARIANCE_NET": "{:,.2f}", "VARIANCE_PCT": "{:,.2f}"}
+        ),
+        use_container_width=True, height=460
+    )
+    st.caption(
+        f"{int(totals['MATCHED'])} of {int(totals['ENTITY_PERIODS'])} entity-periods "
+        "reconcile to the lodged BAS. The rest are ranked by absolute variance."
+    )
+
+
+# ----------------------------------------------------------------------------
+# Tab 2 - Exception register
+# ----------------------------------------------------------------------------
+with tab_exc:
+    st.subheader("Exceptions, highest risk score first")
+    f1, f2 = st.columns([1, 1])
+    pick = f1.selectbox("Severity", ["ALL", "HIGH", "MEDIUM", "LOW"])
+    rows = f2.slider("Rows to show", 50, 500, 200, step=50)
+
+    st.dataframe(load_exceptions(pick, rows), use_container_width=True, height=460)
+    st.dataframe(severity, use_container_width=True)
+    st.caption(
+        "The register is always read with ORDER BY RISK_SCORE DESC and a LIMIT. "
+        "Nobody works a queue of 253,394 lines from the top."
+    )
+
+
+# ----------------------------------------------------------------------------
+# Tab 3 - Entity heatmap
+# ----------------------------------------------------------------------------
+with tab_heat:
+    st.subheader("Exception lines by entity and tax period")
+    heat = load_heatmap()
+    grid = heat.pivot(index="ENTITY_NAME", columns="TAX_PERIOD",
+                      values="EXCEPTION_LINES").fillna(0).astype(int)
+    st.dataframe(
+        grid.style.background_gradient(cmap="Blues", axis=None),
+        use_container_width=True, height=460
+    )
+    st.caption("Read it across for a period that went wrong everywhere, "
+               "and down for an entity with a standing problem.")
+
+
+# ----------------------------------------------------------------------------
+# Tab 4 - AI review queue
+# ----------------------------------------------------------------------------
+with tab_ai:
+    st.subheader("Working papers awaiting review")
+    queue = load_ai_queue()
+
+    if queue.empty:
+        st.warning("No rows in AI_INSIGHTS.V_AI_EXCEPTION_RATIONALE. "
+                   "Run Step 4 of this lab first.")
+    else:
+        if "decisions" not in st.session_state:
+            st.session_state["decisions"] = {}
+
+        labels = [f"{r.GL_LINE_ID} - {r.MAX_SEVERITY} - {r.EXCEPTION_CODES}"
+                  for r in queue.itertuples()]
+        chosen = st.selectbox(f"Exception ({len(queue)} in the queue)", labels)
+        row = queue.iloc[labels.index(chosen)]
+
+        left, right = st.columns([2, 1])
+
+        with left:
+            st.markdown("**Generated working paper**")
+            st.info(row["AI_WORKING_PAPER"])
+            st.markdown("**Rule applied**")
+            st.write(f"Rule {int(row['APPLIED_RULE_ID'])} - "
+                     f"{row['APPLIED_RULE_DESCRIPTION']}")
+
+        with right:
+            st.metric("Tax variance", money(row["TAX_VARIANCE"]))
+            st.write(f"**Entity** {row['ENTITY_NAME']}")
+            st.write(f"**Supplier** {row['SUPPLIER_NAME']}")
+
+            current = st.session_state["decisions"].get(row["GL_LINE_ID"], "Not reviewed")
+            decision = st.radio(
+                "Reviewer decision",
+                ["Not reviewed", "Approve - treatment is correct",
+                 "Reject - refer for adjustment"],
+                index=["Not reviewed", "Approve - treatment is correct",
+                       "Reject - refer for adjustment"].index(current),
+                key=f"decision_{row['GL_LINE_ID']}"
+            )
+            st.session_state["decisions"][row["GL_LINE_ID"]] = decision
+
+        reviewed = {k: v for k, v in st.session_state["decisions"].items()
+                    if v != "Not reviewed"}
+        st.divider()
+        st.caption(f"{len(reviewed)} of {len(queue)} reviewed in this session.")
+        if reviewed:
+            st.dataframe(
+                pd.DataFrame({"GL_LINE_ID": list(reviewed.keys()),
+                              "DECISION": list(reviewed.values())}),
+                use_container_width=True
+            )</code></pre></div>
+
+<h3>What the fourth tab changes about the reviewer's job</h3>
+
+<p>The first three tabs answer <em>what is wrong</em>. The fourth answers <em>why</em>, and it
+does so in the order that matters: the generated working paper first, the rule that produced the
+treatment immediately beneath it, and the variance and counterparty to the side. A reviewer can
+form a view without leaving the screen or writing a query, and the rule identifier means the
+sentence they are reading is traceable to a row in <code>TAX.TAX_RULE_DETERMINATION</code> that
+a person can inspect and, if it is wrong, change.</p>
+
+<div class="info-box"><span class="icon">🔑</span><div><strong>The decisions are in session state, deliberately</strong><p><code>st.session_state</code> holds the approve and reject choices for the duration of the
+session and no longer. That is the honest shape for a workshop: persisting a reviewer's sign-off
+means an audit table, a user identity, a timestamp and a policy on who may overturn whom, which
+is a governance conversation rather than a Streamlit one. Swap the dictionary for an
+<code>INSERT</code> into an <code>AUDIT</code> schema table when you build this for a client,
+and note that the decision is then evidence and has to be retained accordingly.</p></div></div>
+
+<div class="info-box warning"><span class="icon">⚠️</span><div><strong>Why every query here is an aggregate or a bounded read</strong><p>Nothing in this app returns a row per ledger line. The tiles and the heatmap are
+<code>GROUP BY</code> aggregates, the reconciliation reads a 532-row view, the register carries
+an explicit <code>LIMIT</code> that the user controls, and the AI queue is the 25 rows Step 4
+bounded. Drop the <code>LIMIT</code> from the register and Streamlit will attempt to
+materialise 253,394 rows in the browser — the warehouse will cope, and the front end will not.
+<code>@st.cache_data(ttl=600)</code> on every loader means the ten minutes after the first
+click cost no compute at all.</p></div></div>
+
+<div class="info-box success"><span class="icon">✅</span><div><strong>Where you are</strong><p>One application, four tabs, over a governed ledger: the group position, the reconciliation
+against what was lodged, the exception register ranked by risk, and a review queue where the
+explanation is already written. The tax team never sees the SQL, and every number on the screen
+traces back to a rule row and a source document reference.</p></div></div>

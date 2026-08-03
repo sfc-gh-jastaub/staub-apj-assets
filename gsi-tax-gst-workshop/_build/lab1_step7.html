@@ -1,0 +1,171 @@
+<p>This is how tax logic actually arrives. Not as a change request, not as a specification, not
+through a project — as a spreadsheet, by email, from the person who owns the rule. Following the
+imported-services review in Step 4, the tax team wants the same reverse-charge correction extended
+to another supply category from the start of next quarter, and they have asked you what it does to
+the group position <em>before</em> it happens.</p>
+
+<ul class="learning-list">
+    <li>Load a tax team spreadsheet into a staging table through the Snowsight interface.</li>
+    <li>Clone the entire environment in one statement, at no storage cost.</li>
+    <li>Apply the new rules to the clone only, closing off the row they supersede.</li>
+    <li>Compare the group GST position across both databases in a single query.</li>
+    <li>Throw the scenario away.</li>
+</ul>
+
+<h3>Upload the spreadsheet</h3>
+
+<p>No code for this part. The file is <code>assets/gsi_tax_rule_update.csv</code> from the workshop
+bundle — three determination rows, two of them with a <code>VALID_FROM</code> in the next quarter.</p>
+
+<ol>
+    <li>In the left navigation choose <strong>Data</strong>, then <strong>Databases</strong>.</li>
+    <li>Expand <code>GSI_TAX_WORKSHOP</code> and select the <code>TAX</code> schema.</li>
+    <li>Click <strong>Create</strong>, then <strong>Table</strong>, then <strong>From File</strong>.</li>
+    <li>Drop <code>gsi_tax_rule_update.csv</code> into the upload panel.</li>
+    <li>Name the table <code>STG_RULE_UPDATE</code>.</li>
+    <li>Snowsight infers the column names and types from the header row — check that
+        <code>VALID_FROM</code> and <code>VALID_TO</code> came through as <code>DATE</code> and that
+        the two boolean columns came through as <code>BOOLEAN</code>, then click
+        <strong>Load</strong>.</li>
+</ol>
+
+<p>The tax team's spreadsheet is now a governed table in the <code>TAX</code> schema, with inferred
+types, visible to anyone with access and versioned by the platform. Nobody wrote a loader.</p>
+
+<div class="info-box"><span class="icon">💡</span><div><strong>What just changed about that spreadsheet</strong><p>It was an attachment in somebody's inbox: no history, no access control, no lineage, and a
+different copy on four laptops. It is now a table. The rows carry explicit
+<code>VALID_FROM</code> and <code>VALID_TO</code> dates, so the position is effective-dated rather
+than simply overwritten — and the file did not have to change shape to get here.</p></div></div>
+
+<h3>Block 1 — clone the entire environment</h3>
+
+<p>You are about to change tax rules. Not in production.</p>
+
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>CREATE DATABASE GSI_TAX_SCENARIO CLONE GSI_TAX_WORKSHOP;
+
+-- Prove the clone is complete: the ledger, the rules and the
+-- reconciliation are all there.
+SELECT (SELECT COUNT(*) FROM GSI_TAX_SCENARIO.CURATED.GL_HARMONISED)          AS LEDGER_LINES,
+       (SELECT COUNT(*) FROM GSI_TAX_SCENARIO.TAX.TAX_RULE_DETERMINATION)     AS RULES,
+       (SELECT COUNT(*) FROM GSI_TAX_SCENARIO.TAX.V_GST_VS_BAS)               AS ENTITY_PERIODS;</code></pre></div>
+
+<p>Every schema, every table, every view and all 2,400,000 ledger lines, in one statement. It
+completes in seconds and consumes no storage, because the clone shares the underlying
+micro-partitions with the original until one of them diverges. From this point the two databases are
+independent: anything you do in <code>GSI_TAX_SCENARIO</code> is invisible to
+<code>GSI_TAX_WORKSHOP</code>.</p>
+
+<h3>Block 2 — apply the new rules to the clone only</h3>
+
+<p>Note the database qualification on every statement. This is the whole safety mechanism, and it is
+worth reading twice before you run it.</p>
+
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- 0. Fallback, so this notebook runs end to end even if you skipped the
+--    upload. Uploading the CSV through the UI is the point of the exercise -
+--    that is how a rule change actually arrives - but the staging table has
+--    to exist either way. This creates it only if it is missing.
+CREATE TABLE IF NOT EXISTS GSI_TAX_WORKSHOP.TAX.STG_RULE_UPDATE (
+    RULE_ID                 NUMBER,
+    PRIORITY                NUMBER,
+    JURISDICTION            VARCHAR,
+    SUPPLY_CATEGORY         VARCHAR,
+    SUPPLIER_GST_REGISTERED BOOLEAN,
+    IS_CROSS_BORDER         BOOLEAN,
+    TAX_TREATMENT           VARCHAR,
+    RECOVERABLE             BOOLEAN,
+    VALID_FROM              DATE,
+    VALID_TO                DATE,
+    RULE_DESCRIPTION        VARCHAR
+);
+
+INSERT INTO GSI_TAX_WORKSHOP.TAX.STG_RULE_UPDATE
+SELECT * FROM VALUES
+    (17,20,'AU','STANDARD_GOODS'   ,FALSE,TRUE,'REVERSE_CHARGE',TRUE,'2026-10-01'::DATE,'9999-12-31'::DATE,'Imported standard goods from an unregistered offshore supplier - reverse charge applies from 1 Oct 2026'),
+    (18,20,'AU','CAPITAL_EQUIPMENT',FALSE,TRUE,'REVERSE_CHARGE',TRUE,'2026-10-01'::DATE,'9999-12-31'::DATE,'Imported capital equipment from an unregistered offshore supplier - reverse charge applies from 1 Oct 2026'),
+    (19,40,'AU','STANDARD_GOODS'   ,FALSE,TRUE,'TAXABLE'       ,TRUE,'2000-07-01'::DATE,'2026-09-30'::DATE,'Superseded - imported standard goods treated as ordinary taxable supply until 30 Sep 2026')
+WHERE NOT EXISTS (SELECT 1 FROM GSI_TAX_WORKSHOP.TAX.STG_RULE_UPDATE);
+
+-- 1. Insert the tax team's new determination rows into the CLONE.
+INSERT INTO GSI_TAX_SCENARIO.TAX.TAX_RULE_DETERMINATION
+    (RULE_ID, PRIORITY, JURISDICTION, SUPPLY_CATEGORY, SUPPLIER_GST_REGISTERED,
+     IS_CROSS_BORDER, TAX_TREATMENT, RECOVERABLE, VALID_FROM, VALID_TO, RULE_DESCRIPTION)
+SELECT RULE_ID, PRIORITY, JURISDICTION, SUPPLY_CATEGORY, SUPPLIER_GST_REGISTERED,
+       IS_CROSS_BORDER, TAX_TREATMENT, RECOVERABLE, VALID_FROM, VALID_TO, RULE_DESCRIPTION
+FROM GSI_TAX_WORKSHOP.TAX.STG_RULE_UPDATE;
+
+-- 2. Close off the row the new position supersedes. The existing rule is
+--    not deleted and not edited - its VALID_TO is set to the day before
+--    the new rule starts, so the historical answer is preserved.
+UPDATE GSI_TAX_SCENARIO.TAX.TAX_RULE_DETERMINATION
+   SET VALID_TO = DATEADD('day', -1, DATE '2026-10-01')
+ WHERE RULE_ID = 11
+   AND VALID_TO = DATE '9999-12-31';
+
+-- 3. Read back the rules that now govern imported goods.
+SELECT RULE_ID, PRIORITY, SUPPLY_CATEGORY, SUPPLIER_GST_REGISTERED,
+       IS_CROSS_BORDER, TAX_TREATMENT, RECOVERABLE, VALID_FROM, VALID_TO
+FROM GSI_TAX_SCENARIO.TAX.TAX_RULE_DETERMINATION
+WHERE SUPPLY_CATEGORY IN ('STANDARD_GOODS', 'CAPITAL_EQUIPMENT')
+ORDER BY SUPPLY_CATEGORY, PRIORITY, VALID_FROM;</code></pre></div>
+
+<p>Read what statement 2 does not do. It does not delete rule 11 and it does not change its
+treatment. It sets its <code>VALID_TO</code>, so a line dated before 1 October 2026 still resolves
+to the old position and a line dated after it resolves to the new one. That is the difference between
+a rules table and a configuration file: the historical answer remains reproducible, which is exactly
+what you need when the auditor asks why a transaction from last year was treated the way it
+was.</p>
+
+<div class="info-box warning"><span class="icon">⚠️</span><div><strong>No rebuild, no reload, no redeploy</strong><p><code>TAX.V_GST_DETERMINED</code> is a view, so the moment those rows land the determined
+treatment for every affected line has already changed in the clone. There is nothing to refresh,
+nothing to recompute and nothing to deploy — the next query simply returns a different and correct
+answer.</p></div></div>
+
+<h3>Block 3 — the two positions, side by side</h3>
+
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>WITH production AS (
+    SELECT ENTITY_NAME,
+           SUM(COMPUTED_NET_GST) AS NET_GST
+    FROM GSI_TAX_WORKSHOP.TAX.V_GST_VS_BAS
+    GROUP BY ENTITY_NAME
+),
+scenario AS (
+    SELECT ENTITY_NAME,
+           SUM(COMPUTED_NET_GST) AS NET_GST
+    FROM GSI_TAX_SCENARIO.TAX.V_GST_VS_BAS
+    GROUP BY ENTITY_NAME
+)
+SELECT COALESCE(p.ENTITY_NAME, s.ENTITY_NAME)                     AS ENTITY_NAME,
+       ROUND(COALESCE(p.NET_GST, 0), 2)                           AS NET_GST_TODAY,
+       ROUND(COALESCE(s.NET_GST, 0), 2)                           AS NET_GST_UNDER_NEW_RULES,
+       ROUND(COALESCE(s.NET_GST, 0) - COALESCE(p.NET_GST, 0), 2)   AS IMPACT,
+       ROUND((COALESCE(s.NET_GST, 0) - COALESCE(p.NET_GST, 0))
+             / NULLIF(ABS(COALESCE(p.NET_GST, 0)), 0) * 100, 2)    AS IMPACT_PCT
+FROM production p
+FULL OUTER JOIN scenario s ON s.ENTITY_NAME = p.ENTITY_NAME
+ORDER BY ABS(COALESCE(s.NET_GST, 0) - COALESCE(p.NET_GST, 0)) DESC;</code></pre></div>
+
+<p>One query, two databases, fourteen entities, and the answer the tax team asked for. Because the
+new rules carry a future <code>VALID_FROM</code>, the impact on <em>historical</em> periods is nil by
+construction — which is itself the finding, and the point worth making out loud: no lodged period is
+restated. The forward effect appears the moment those periods close, and the tax team can see the
+number now rather than discovering it in a quarterly true-up.</p>
+
+<h3>Block 4 — throw the scenario away</h3>
+
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>DROP DATABASE GSI_TAX_SCENARIO;</code></pre></div>
+
+<p>Gone. The production database was never touched, and if you decide tomorrow that you needed the
+scenario after all, <code>UNDROP DATABASE GSI_TAX_SCENARIO;</code> brings it back within the
+retention window.</p>
+
+<div class="info-box success"><span class="icon">⚡</span><div><strong>What the exercise actually cost</strong><p>The tax team's spreadsheet became governed, effective-dated reference data. Modelling its impact
+across a 2,400,000-line ledger cost one clone and four minutes — no environment request, no data
+copy, no storage, production untouched and no lodged period restated. Ask the room what the same
+question costs them today: who provisions the sandbox, how long the refresh takes, and how stale the
+data is by the time the answer arrives.</p></div></div>
+
+<div class="info-box"><span class="icon">🔑</span><div><strong>Why this is the pattern, not a trick</strong><p>Every rate change, every treaty update and every legislative amendment is this exercise. A rule
+arrives from the person who owns it, somebody has to say what it does to the numbers, and the answer
+has to be produced without disturbing the position already lodged. Clone, apply, compare, discard —
+and because the rules are data rather than code, the only artefact that changed was a set of rows
+with dates on them.</p></div></div>

@@ -1,0 +1,115 @@
+-- NOTE: every RANDOM() call is seeded so the generated data is byte-identical
+-- on every run, in every account, at any warehouse size. The figures quoted in
+-- the lab HTML depend on this. Do not remove the seeds.
+-- =====================================================================
+-- GSI TAX WORKSHOP — LAB 1 STEP 1 SETUP
+-- Builds warehouse, database, 7 schemas and all 8 RAW_DATA tables.
+-- Target: 2,400,000 GL lines. Runtime target: under 2 minutes on SMALL.
+-- =====================================================================
+
+CREATE WAREHOUSE IF NOT EXISTS GSI_TAX_WH
+    WAREHOUSE_SIZE = 'SMALL'
+    AUTO_SUSPEND = 60
+    AUTO_RESUME = TRUE
+    INITIALLY_SUSPENDED = FALSE;
+
+USE WAREHOUSE GSI_TAX_WH;
+
+CREATE OR REPLACE DATABASE GSI_TAX_WORKSHOP;
+USE DATABASE GSI_TAX_WORKSHOP;
+
+CREATE SCHEMA IF NOT EXISTS RAW_DATA;
+CREATE SCHEMA IF NOT EXISTS CURATED;
+CREATE SCHEMA IF NOT EXISTS TAX;
+CREATE SCHEMA IF NOT EXISTS AI_INSIGHTS;
+CREATE SCHEMA IF NOT EXISTS AGENTS;
+CREATE SCHEMA IF NOT EXISTS APPS;
+CREATE SCHEMA IF NOT EXISTS AUDIT;
+
+-- ---------------------------------------------------------------------
+-- DIM_LEGAL_ENTITY — 14 rows. The crosswalk: three ERP identifiers,
+-- one group entity. NULLs mean the entity does not exist in that system.
+-- ---------------------------------------------------------------------
+CREATE OR REPLACE TABLE RAW_DATA.DIM_LEGAL_ENTITY (
+    ENTITY_ID            VARCHAR(10),
+    ENTITY_NAME          VARCHAR(100),
+    ABN                  VARCHAR(14),
+    JURISDICTION         VARCHAR(2),
+    GST_REGISTERED       BOOLEAN,
+    FUNCTIONAL_CURRENCY  VARCHAR(3),
+    SAP_BUKRS            VARCHAR(4),
+    ORACLE_LEDGER_ID     VARCHAR(10),
+    LEGACY_ENTITY_CD     VARCHAR(6)
+);
+
+INSERT INTO RAW_DATA.DIM_LEGAL_ENTITY VALUES
+('ENT001','Southern Cross Industrial Pty Ltd'  ,'51 824 753 556','AU',TRUE,'AUD','1010','LED_2001','AU01'),
+('ENT002','Wattle Grove Logistics Pty Ltd'     ,'47 116 942 308','AU',TRUE,'AUD','1020','LED_2002','AU02'),
+('ENT003','Kurrajong Manufacturing Pty Ltd'    ,'62 903 471 225','AU',TRUE,'AUD','1030','LED_2003','AU03'),
+('ENT004','Boronia Retail Group Pty Ltd'       ,'19 558 260 714','AU',TRUE,'AUD','1040','LED_2004','AU04'),
+('ENT005','Jarrah Point Services Pty Ltd'      ,'83 742 019 631','AU',TRUE,'AUD','1050','LED_2005','AU05'),
+('ENT006','Kingsford Property Holdings Pty Ltd','35 601 887 452','AU',TRUE,'AUD','1060',NULL      ,'AU06'),
+('ENT007','Tallowood Energy Pty Ltd'           ,'74 229 653 108','AU',TRUE,'AUD','1070','LED_2007',NULL ),
+('ENT008','Marrickville Food Co Pty Ltd'       ,'28 470 315 967','AU',TRUE,'AUD',NULL  ,'LED_2008','AU08'),
+('ENT009','Barwon Health Services Pty Ltd'     ,'91 386 724 540','AU',TRUE,'AUD','1090','LED_2009','AU09'),
+('ENT010','Coolibah Finance Pty Ltd'           ,'66 052 918 379','AU',TRUE,'AUD','1100','LED_2010','AU10'),
+('ENT011','Yarra Bend Education Pty Ltd'       ,'12 745 660 283','AU',TRUE,'AUD','1110','LED_2011','AU11'),
+('ENT012','Nullarbor Freight Pty Ltd'          ,'58 913 407 176','AU',TRUE,'AUD',NULL  ,'LED_2012','AU12'),
+('ENT013','Bass Strait Holdings Pty Ltd'       ,'40 268 591 734','AU',TRUE,'AUD','1130','LED_2013',NULL ),
+('ENT014','Perisher Plant Hire Pty Ltd'        ,'77 634 128 905','AU',TRUE,'AUD','1140',NULL      ,'AU14');
+
+-- ---------------------------------------------------------------------
+-- DIM_ACCOUNT_MAPPING — 180 rows (60 per system).
+-- GL uses codes 1..62 per system; mapping covers 1..60.
+-- Result: ~3.2% of GL lines have no mapping (an alarming number at
+-- 2.4M rows, without drowning the exception register).
+-- ---------------------------------------------------------------------
+CREATE OR REPLACE TABLE RAW_DATA.DIM_ACCOUNT_MAPPING AS
+WITH cats AS (
+  SELECT ARRAY_CONSTRUCT(
+    'STANDARD_GOODS','STANDARD_SERVICES','PROFESSIONAL_FEES','ENTERTAINMENT',
+    'RESIDENTIAL_RENT','FINANCIAL_SUPPLY','EXPORT_SALES','FOOD_BASIC',
+    'MEDICAL','EDUCATION','CAPITAL_EQUIPMENT') AS C
+),
+n AS (SELECT SEQ4() + 1 AS I FROM TABLE(GENERATOR(ROWCOUNT => 60))),
+s AS (SELECT 'SAP' AS SYS UNION ALL SELECT 'ORACLE' UNION ALL SELECT 'LEGACY')
+SELECT
+    ROW_NUMBER() OVER (ORDER BY s.SYS, n.I)                       AS MAPPING_ID,
+    s.SYS                                                          AS SOURCE_SYSTEM,
+    CASE s.SYS
+      WHEN 'SAP'    THEN '4'     || LPAD(n.I::VARCHAR, 5, '0')
+      WHEN 'ORACLE' THEN '5100-' || LPAD(n.I::VARCHAR, 4, '0')
+      ELSE               'AP'    || LPAD(n.I::VARCHAR, 3, '0')
+    END                                                            AS NATIVE_ACCOUNT_CODE,
+    'GL' || LPAD((MOD(n.I - 1, 11) * 10 + 1000)::VARCHAR, 6, '0')  AS GROUP_ACCOUNT_CODE,
+    INITCAP(REPLACE(cats.C[MOD(n.I - 1, 11)]::VARCHAR, '_', ' '))  AS GROUP_ACCOUNT_NAME,
+    cats.C[MOD(n.I - 1, 11)]::VARCHAR                              AS SUPPLY_CATEGORY
+FROM n, s, cats;
+
+-- ---------------------------------------------------------------------
+-- DIM_SUPPLIER — 2,000 rows. 5% no ABN, 8% not GST registered.
+-- ---------------------------------------------------------------------
+CREATE OR REPLACE TABLE RAW_DATA.DIM_SUPPLIER AS
+WITH p AS (
+  SELECT ARRAY_CONSTRUCT('Acacia','Redgum','Bluestone','Harbourside','Pinnacle','Meridian',
+         'Clearwater','Ironbark','Sandstone','Northwind','Fairmont','Brightwater','Stirling',
+         'Camperdown','Glenrowan','Yarraville','Bellevue','Crestwood','Darlington','Eastgate') AS PRE,
+         ARRAY_CONSTRUCT('Supplies','Services','Group','Partners','Holdings','Industries',
+         'Consulting','Logistics','Trading','Systems','Solutions','Contractors','Advisory',
+         'Enterprises','Distributors') AS SUF,
+         ARRAY_CONSTRUCT('AU','AU','AU','AU','AU','AU','AU','AU','AU','AU','AU','AU','AU',
+         'NZ','NZ','SG','SG','US','GB','GB') AS CTRY
+)
+SELECT
+    'SUP' || LPAD((SEQ4() + 1)::VARCHAR, 6, '0')                                  AS SUPPLIER_ID,
+    p.PRE[UNIFORM(0,19,RANDOM(1001))]::VARCHAR || ' ' ||
+    p.SUF[UNIFORM(0,14,RANDOM(1002))]::VARCHAR || ' Pty Ltd'                          AS SUPPLIER_NAME,
+    CASE WHEN UNIFORM(1,100,RANDOM(1003)) <= 5 THEN NULL
+         ELSE LPAD(UNIFORM(10,99,RANDOM(1004))::VARCHAR,2,'0') || ' ' ||
+              LPAD(UNIFORM(100,999,RANDOM(1005))::VARCHAR,3,'0') || ' ' ||
+              LPAD(UNIFORM(100,999,RANDOM(1006))::VARCHAR,3,'0') || ' ' ||
+              LPAD(UNIFORM(100,999,RANDOM(1007))::VARCHAR,3,'0')
+    END                                                                            AS SUPPLIER_ABN,
+    IFF(UNIFORM(1,100,RANDOM(1008)) <=  8, FALSE, TRUE)                                AS GST_REGISTERED,
+    p.CTRY[UNIFORM(0,19,RANDOM(1009))]::VARCHAR                                        AS SUPPLIER_COUNTRY
+FROM TABLE(GENERATOR(ROWCOUNT => 2000)), p;
