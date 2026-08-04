@@ -898,7 +898,7 @@ table tbody tr:nth-child(even) { background: var(--gray-50); }
 
             <a class="resource-card" href="gsi_tax_workshop_lab1_foundation.html">
                 <h4>Lab 1 &middot; Tax Data Foundation: Raw to Return-Ready</h4>
-                <p><strong>60 min core + 28 min optional</strong></p>
+                <p><strong>57 min core + 28 min optional</strong></p>
                 <p>Three incompatible ERP extracts, 2.4 million ledger lines, one governed GST
                 position — and an audit trail you can reproduce on demand.</p>
                 <ul class="learning-list">
@@ -929,8 +929,182 @@ table tbody tr:nth-child(even) { background: var(--gray-50); }
     </div>
 </section>
 
-<!-- ==================== HOW TO RUN ==================== -->
+<!-- ==================== ARCHITECTURE ==================== -->
 <section class="content-section alt-bg">
+    <div class="section-container">
+        <h2 class="section-title">The architecture you build</h2>
+
+        <p>Both labs build one thing: a layered GST platform over three general ledgers that were
+        never designed to be combined. The layering is the design, not housekeeping. Each layer has
+        exactly one job, and the boundary between conformance and tax logic is what makes the rule
+        set something the tax team can own and change without an engineer.</p>
+
+        <p>Nothing is copied between layers. Every layer above <code>RAW_DATA</code> is a Dynamic
+        Table or a view over the layer beneath it, so there is one copy of the ledger and one
+        version of the truth.</p>
+
+        <!-- ---------- layer diagram ---------- -->
+        <div style="display:flex; flex-direction:column; align-items:center; gap:0; margin:30px 0 10px;">
+
+            <div style="font-family:Montserrat,sans-serif; font-size:0.6875rem; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:#6E6E6E; margin-bottom:8px;">RAW_DATA &middot; landed exactly as it arrived</div>
+            <div style="display:flex; flex-wrap:wrap; justify-content:center; gap:12px;">
+                <div style="background:#ffffff; border:1px solid #C9C9C9; border-radius:8px; padding:12px 16px; text-align:center; min-width:158px;">
+                    <div style="font-family:Montserrat,sans-serif; font-weight:700; font-size:0.8125rem;">ERP_SAP_GL</div>
+                    <div style="font-size:0.6875rem; color:#6E6E6E; margin-top:3px;">1,200,000 lines &middot; <code>BUDAT</code> as text</div>
+                </div>
+                <div style="background:#ffffff; border:1px solid #C9C9C9; border-radius:8px; padding:12px 16px; text-align:center; min-width:158px;">
+                    <div style="font-family:Montserrat,sans-serif; font-weight:700; font-size:0.8125rem;">ERP_ORACLE_GL</div>
+                    <div style="font-size:0.6875rem; color:#6E6E6E; margin-top:3px;">800,000 lines &middot; debit/credit split</div>
+                </div>
+                <div style="background:#ffffff; border:1px solid #C9C9C9; border-radius:8px; padding:12px 16px; text-align:center; min-width:158px;">
+                    <div style="font-family:Montserrat,sans-serif; font-weight:700; font-size:0.8125rem;">ERP_LEGACY_AP</div>
+                    <div style="font-size:0.6875rem; color:#6E6E6E; margin-top:3px;">400,000 lines &middot; <code>DD/MM/YYYY</code>, some invalid</div>
+                </div>
+            </div>
+
+            <div style="width:2px; height:16px; background:#C9C9C9; margin-top:14px;"></div>
+            <div style="font-size:0.6875rem; color:#6E6E6E; padding:3px 10px; background:#F5F5F5; border-radius:4px;">conform &middot; <code>TRY_TO_DATE</code>, account mapping, one grain</div>
+            <div style="width:2px; height:16px; background:#C9C9C9;"></div>
+
+            <div style="background:#11567F; color:#ffffff; border-radius:10px; padding:16px 26px; text-align:center; min-width:330px; box-shadow:0 2px 6px rgba(0,0,0,0.12);">
+                <div style="font-family:Montserrat,sans-serif; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; font-size:0.8125rem;">CURATED.GL_HARMONISED</div>
+                <div style="font-size:0.75rem; opacity:0.85; margin-top:4px;">Dynamic Table &middot; 2,400,000 lines &middot; <span style="color:#ffffff; font-weight:700;">no tax logic</span></div>
+            </div>
+
+            <div style="width:2px; height:16px; background:#C9C9C9;"></div>
+            <div style="font-size:0.6875rem; color:#6E6E6E; padding:3px 10px; background:#F5F5F5; border-radius:4px;">determine &middot; thin generic SQL joins the rules to the ledger</div>
+            <div style="width:2px; height:16px; background:#C9C9C9;"></div>
+
+            <div style="background:#11567F; color:#ffffff; border-radius:10px; padding:16px 26px; text-align:center; min-width:330px; box-shadow:0 2px 6px rgba(0,0,0,0.12);">
+                <div style="font-family:Montserrat,sans-serif; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; font-size:0.8125rem;">TAX</div>
+                <div style="font-size:0.75rem; opacity:0.85; margin-top:4px;">rules as data &rarr; determination &rarr; exceptions &rarr; BAS reconciliation</div>
+            </div>
+
+            <div style="width:2px; height:16px; background:#C9C9C9;"></div>
+
+            <div style="display:flex; flex-wrap:wrap; justify-content:center; gap:12px;">
+                <div style="background:#29B5E8; color:#ffffff; border-radius:8px; padding:12px 16px; text-align:center; min-width:140px;">
+                    <div style="font-family:Montserrat,sans-serif; font-weight:700; font-size:0.8125rem; letter-spacing:0.5px;">AI_INSIGHTS</div>
+                    <div style="font-size:0.6875rem; opacity:0.9; margin-top:3px;">reads the free text</div>
+                </div>
+                <div style="background:#29B5E8; color:#ffffff; border-radius:8px; padding:12px 16px; text-align:center; min-width:140px;">
+                    <div style="font-family:Montserrat,sans-serif; font-weight:700; font-size:0.8125rem; letter-spacing:0.5px;">AGENTS</div>
+                    <div style="font-size:0.6875rem; opacity:0.9; margin-top:3px;">answers in English</div>
+                </div>
+                <div style="background:#29B5E8; color:#ffffff; border-radius:8px; padding:12px 16px; text-align:center; min-width:140px;">
+                    <div style="font-family:Montserrat,sans-serif; font-weight:700; font-size:0.8125rem; letter-spacing:0.5px;">APPS</div>
+                    <div style="font-size:0.6875rem; opacity:0.9; margin-top:3px;">the review screen</div>
+                </div>
+                <div style="background:#29B5E8; color:#ffffff; border-radius:8px; padding:12px 16px; text-align:center; min-width:140px;">
+                    <div style="font-family:Montserrat,sans-serif; font-weight:700; font-size:0.8125rem; letter-spacing:0.5px;">AUDIT</div>
+                    <div style="font-size:0.6875rem; opacity:0.9; margin-top:3px;">the position as lodged</div>
+                </div>
+            </div>
+
+        </div>
+
+        <h3>What lives in each layer</h3>
+
+        <div class="table-wrapper">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Schema</th>
+                        <th>What it holds</th>
+                        <th>Why it is separate</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>RAW_DATA</code></td>
+                        <td>The three ERP extracts, plus the entity, supplier and account-mapping
+                        dimensions, the lodged BAS history and 300 invoice documents.</td>
+                        <td>Landed unchanged, so you can always show an auditor what the source
+                        system actually said.</td>
+                    </tr>
+                    <tr>
+                        <td><code>CURATED</code></td>
+                        <td>One object: <code>GL_HARMONISED</code>, a Dynamic Table that resolves the
+                        date formats, the amount conventions and the entity keys.</td>
+                        <td>Conformance only. It knows nothing about GST, which is why the same
+                        ledger can carry a second tax later without being rebuilt.</td>
+                    </tr>
+                    <tr>
+                        <td><code>TAX</code></td>
+                        <td><code>TAX_RULE_DETERMINATION</code> and <code>TAX_RULE_RATE</code> as
+                        effective-dated tables, then <code>V_GST_DETERMINED</code>,
+                        <code>V_GST_EXCEPTIONS</code> and <code>V_GST_VS_BAS</code>.</td>
+                        <td>The rules are <strong>data the tax team edits</strong>, not SQL an
+                        engineer edits. Changing a rate is an <code>UPDATE</code>, not a release.</td>
+                    </tr>
+                    <tr>
+                        <td><code>AI_INSIGHTS</code></td>
+                        <td>Cortex output: supply classification, ABN and GST extracted from
+                        narratives, drafted rationale, and <code>DT_AI_EXCEPTION_REVIEW</code>.</td>
+                        <td>Model output is kept apart from the determined position, so a human can
+                        compare the two rather than having AI silently overwrite a tax treatment.</td>
+                    </tr>
+                    <tr>
+                        <td><code>AGENTS</code></td>
+                        <td><code>SV_GST_COMPLIANCE</code>, a semantic view, and
+                        <code>GST_COMPLIANCE_AGENT</code> over it.</td>
+                        <td>The agent answers from the governed layer only. It cannot invent a
+                        number the reconciliation would not also produce.</td>
+                    </tr>
+                    <tr>
+                        <td><code>APPS</code></td>
+                        <td>The Streamlit control tower &mdash; one file, live KPIs, the entity
+                        heatmap and the exception worklist.</td>
+                        <td>A results grid is not a review tool. This is the screen a tax manager
+                        works a month from.</td>
+                    </tr>
+                    <tr>
+                        <td><code>AUDIT</code></td>
+                        <td>A zero-copy clone of the ledger as it stood at lodgement.</td>
+                        <td>Reproducing a prior filing is a storage-free clone, not a restore from
+                        backup.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <h3>The numbers this produces</h3>
+
+        <p>The data is deterministic, so every figure below is the same in every account on any day:
+        <strong>14 legal entities</strong> across <strong>38 monthly periods</strong> gives
+        <strong>532 entity-periods</strong> to reconcile against the lodged BAS, and the rule set
+        flags <strong>253,394</strong> of the 2,400,000 ledger lines for review. Two of the
+        14 entities do not exist in SAP at all, which is the first thing Lab 1 proves and the reason
+        the group cannot answer the partner's question today.</p>
+
+        <div class="info-box">
+            <span class="icon">&#128273;</span>
+            <div>
+                <strong>The one boundary that matters</strong>
+                <p>No tax logic in <code>CURATED</code>. That single rule is what stops this being
+                another bespoke pipeline: the conformance layer is client-specific and the rule sets
+                are portable, so a rate change, a new determination rule or an entirely different
+                indirect tax never touches the 2.4 million lines underneath. Everything in
+                <strong>Where this goes next</strong> below depends on holding that line.</p>
+            </div>
+        </div>
+
+        <div class="info-box success">
+            <span class="icon">&#9989;</span>
+            <div>
+                <strong>Why it survives an audit</strong>
+                <p>Every flagged line traces to the rule row that fired and the source document
+                reference behind it, so a treatment can be explained rather than defended. Time
+                Travel reproduces the ledger as at the lodgement date, and the clone in
+                <code>AUDIT</code> pins it permanently. Nothing is recomputed to answer the
+                question, which is what makes the answer the same next month.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ==================== HOW TO RUN ==================== -->
+<section class="content-section">
     <div class="section-container">
         <h2 class="section-title">Two ways to run each lab</h2>
 
@@ -945,13 +1119,16 @@ table tbody tr:nth-child(even) { background: var(--gray-50); }
                 <p>Every statement is already a cell. Nothing is copied or pasted, and each
                 result appears directly beneath the query that produced it.</p>
                 <ul class="learning-list">
+                    <li><code>gsi_tax_lab0_setup.ipynb</code> &mdash; run once, before the day</li>
                     <li><code>gsi_tax_lab1_foundation.ipynb</code></li>
                     <li><code>gsi_tax_lab2_cortex_ai.ipynb</code></li>
+                    <li><code>gsi_tax_reset.ipynb</code> &mdash; clear one lab or tear it all down</li>
                 </ul>
                 <p>In Snowsight: <strong>Projects &rarr; Notebooks</strong>, select the arrow beside
                 <strong>+ Notebook</strong>, then <strong>Import .ipynb file</strong>. Set the role to
-                <code>SYSADMIN</code>. For Lab 1 any warehouse will do &mdash; the first cell creates
-                <code>GSI_TAX_WH</code>. For Lab 2 select <code>GSI_TAX_WH</code>.</p>
+                <code>SYSADMIN</code>. For the setup notebook any warehouse will do &mdash; its first
+                cell creates <code>GSI_TAX_WH</code>. For both labs select
+                <code>GSI_TAX_WH</code>.</p>
             </div>
 
             <div class="overview-card">
@@ -979,7 +1156,8 @@ table tbody tr:nth-child(even) { background: var(--gray-50); }
         </div>
     </div>
 </section>
-<section class="content-section">
+<!-- ==================== BEFORE YOU START ==================== -->
+<section class="content-section alt-bg">
     <div class="section-container">
         <h2 class="section-title">Before you start</h2>
 
@@ -1004,7 +1182,9 @@ table tbody tr:nth-child(even) { background: var(--gray-50); }
             <div class="overview-card highlight">
                 <h3>One environment, both labs</h3>
                 <p>Both labs share a single database, <code>GSI_TAX_WORKSHOP</code>, and a single
-                warehouse, <code>GSI_TAX_WH</code>. Lab 1 creates them.</p>
+                warehouse, <code>GSI_TAX_WH</code>. <code>gsi_tax_lab0_setup.ipynb</code> creates
+                them, along with the seven schemas and the 2.4 million ledger lines. Run it once
+                before the day.</p>
                 <p><strong>Lab 2 depends on the objects Lab 1 builds</strong> — the conformed
                 ledger, the rule tables, the determination view and the exception register. Run
                 Lab 1 first, and do not tear anything down between the two.</p>
@@ -1019,7 +1199,7 @@ table tbody tr:nth-child(even) { background: var(--gray-50); }
 </section>
 
 <!-- ==================== WHERE THIS GOES NEXT ==================== -->
-<section class="content-section alt-bg">
+<section class="content-section">
     <div class="section-container">
         <h2 class="section-title">Where this goes next</h2>
 
@@ -1087,7 +1267,7 @@ table tbody tr:nth-child(even) { background: var(--gray-50); }
 </section>
 
 <!-- ==================== DISCLAIMER ==================== -->
-<section class="content-section">
+<section class="content-section alt-bg">
     <div class="section-container">
         <div class="info-box warning"><span class="icon">&#9888;&#65039;</span><div><strong>Synthetic data — for demonstration only</strong><p>Every entity, supplier, ABN, ledger line, invoice, narrative and lodged BAS figure in this
         workshop is <strong>synthetically generated</strong>. Nothing here is real client data,
