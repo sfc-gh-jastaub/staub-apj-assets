@@ -187,18 +187,32 @@ BLOCK_RE = re.compile(
     re.S,
 )
 
+# Surface routing. Both wrappers contain only <p>/<ul>/<ol>/<table> - never a
+# nested <div> - so a non-greedy match to the first </div> is the whole block.
+GUIDE_ONLY_RE = re.compile(r'<div[^>]*data-surface="guide"[^>]*>.*?</div>\s*', re.S)
+BEAT_RE = re.compile(r'<div[^>]*data-beat="[a-z]+"[^>]*>(.*?)</div>\s*', re.S)
 
-def html_to_md(fragment, mode="tight"):
+
+def html_to_md(fragment, mode="auto"):
     """Convert a prose HTML fragment to markdown chunks.
 
     mode='full'  faithful port of every element.
-    mode='tight' notebook companion to the HTML guide: headings, lists, tables and
-                 callout headlines are kept in full; each consecutive run of
-                 paragraphs is reduced to its first and last (the payoff of the
-                 previous result and the lead-in to the next cell), and callout
-                 bodies to one sentence. The dropped middle is the narrative the
-                 HTML guide owns.
+    mode='tight' legacy condenser for fragments not yet on the beat contract:
+                 each consecutive run of paragraphs is reduced to its first and
+                 last, and callout bodies to one sentence. This drops the middle
+                 of a run, which can weld two unrelated thoughts together - the
+                 reason the beat contract exists.
+    mode='auto'  (default) a fragment carrying data-beat is already authored to
+                 length, so it is passed through whole; anything else falls back
+                 to 'tight'. This lets fragments migrate one at a time.
+
+    In every mode, blocks marked data-surface="guide" are dropped: that is depth
+    the HTML guide owns and the notebook does not need to run.
     """
+    fragment = GUIDE_ONLY_RE.sub("", fragment)
+    if mode == "auto":
+        mode = "full" if 'data-beat="' in fragment else "tight"
+    fragment = BEAT_RE.sub(lambda m: m.group(1), fragment)
     tight = mode == "tight"
     out = []  # list of (kind, text)
     for m in BLOCK_RE.finditer(fragment):

@@ -10,7 +10,7 @@ words they already use.</p>
     <li>Ask eight questions in plain English, and one of them closes the workshop.</li>
 </ul>
 
-<h3>Block 1 — one wide view for the semantic layer</h3>
+<h3>One wide view for the semantic layer</h3>
 
 <p>Cortex Analyst reasons best over a single wide, flat object: one row per ledger line, every
 dimension and every measure present as a column, no joins left for the model to work out. The view
@@ -117,7 +117,7 @@ lodgement measures, <em>"entity"</em> and <em>"company"</em> for <code>ENTITY_NA
 <code>TAX_PERIOD</code>. This is the least technical work in the entire workshop and it determines
 whether anybody uses what you built. Sit with the tax team and write them down.</p></div></div>
 
-<h3>Block 2 — the DDL fallback</h3>
+<h3>If the UI route is unavailable</h3>
 
 <p>If Autopilot is unavailable in your account, or you want the semantic view in version control
 alongside the rest of the pipeline, this is the same object written by hand. Note that the synonyms
@@ -231,19 +231,19 @@ answer, and nobody signs off on a number with no working.</p>
     <li><strong>Show imported professional fees before and after 1 July 2024.</strong> &mdash; demonstrate this one live.</li>
 </ol>
 
-<div class="info-box success"><span class="icon">⭐</span><div><strong>Why question 8 is the one to run in front of the room</strong><p>It exercises the effective-dated determination rules you built in Lab 1. The same population of
+<div class="info-box success"><span class="icon">⭐</span><div><strong>Why question 8 is the one to try first</strong><p>It exercises the effective-dated determination rules you built in Lab 1. The same population of
 imported professional fees, from the same offshore suppliers, on the same accounts, returns
 <code>GST_FREE</code> at 0.00% before 1 July 2024 and <code>REVERSE_CHARGE</code> at 10.00% from that
 date onward — because rule 9 stopped applying and rule 16 started. Nothing about the transactions
 changed. Only the rule that applied to them did, and it changed because of the date on the document
 rather than the date on the calendar. The agent finds that boundary from one sentence of plain
-English, and the $25.5 million of expected GST on the far side of it is the number that ends the
+English, and the $26.2 million of expected GST on the far side of it is the number that ends the
 workshop.</p></div></div>
 
-<div class="info-box"><span class="icon">🎯</span><div><strong>The teaching point — and the point of the whole workshop</strong><p>The agent is only as good as the semantic layer, and the semantic layer is only as good as the
+<div class="info-box"><span class="icon">🎯</span><div><strong>Lab 1 was the prerequisite, not the warm-up</strong><p>The agent is only as good as the semantic layer, and the semantic layer is only as good as the
 governed data underneath it. Point Cortex Analyst at three unreconciled ERPs with three date formats,
 three amount conventions and no entity crosswalk and it will answer fluently and wrongly. Everything
 that makes question 8 work — the conformed ledger, the effective-dated rules, the rule lineage on
 every line, the exception register, the reconciliation — was built in Lab 1, before any AI was
 involved. <strong>Lab 1 was not the warm-up for this. Lab 1 was the prerequisite for this.</strong>
-That is the sentence to leave the room with.</p></div></div>
+That is the point worth leaving with.</p></div></div>

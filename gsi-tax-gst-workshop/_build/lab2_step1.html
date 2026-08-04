@@ -12,8 +12,8 @@ missing grant.</p></div></div>
 <h3>One query, all four layers</h3>
 
 <p>The query below counts every object the lab depends on and puts the expected count beside the
-actual one, so you diagnose your own environment rather than comparing numbers against a screen at
-the front of the room.</p>
+actual one, so you diagnose your own environment rather than checking numbers against
+someone else's screen.</p>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>USE DATABASE GSI_TAX_WORKSHOP;
 USE WAREHOUSE GSI_TAX_WH;
@@ -55,7 +55,7 @@ ORDER BY SORT_KEY;</code></pre></div>
         <tr><td>RAW</td><td><code>RAW_DATA.ERP_SAP_GL</code></td><td>1,200,000</td><td>Source ledger, signed amounts, text dates.</td></tr>
         <tr><td>RAW</td><td><code>RAW_DATA.ERP_ORACLE_GL</code></td><td>800,000</td><td>Source ledger, separate debit and credit columns.</td></tr>
         <tr><td>RAW</td><td><code>RAW_DATA.ERP_LEGACY_AP</code></td><td>400,000</td><td>Source ledger, GST-inclusive amounts.</td></tr>
-        <tr><td>RAW</td><td><code>RAW_DATA.DOC_TAX_INVOICE</code></td><td>300</td><td>The free text this lab reads. Untouched in Lab 1.</td></tr>
+        <tr><td>RAW</td><td><code>RAW_DATA.DOC_TAX_INVOICE</code></td><td>300</td><td>The free text this lab reads. Loaded in setup, untouched by Lab 1.</td></tr>
         <tr><td>CURATED</td><td><code>CURATED.GL_HARMONISED</code></td><td>2,400,000</td><td>The one governed ledger. The only Dynamic Table here.</td></tr>
         <tr><td>TAX</td><td><code>TAX.V_GST_DETERMINED</code></td><td>2,400,000</td><td>Every line with its treatment, rate and rule lineage.</td></tr>
         <tr><td>TAX</td><td><code>TAX.V_GST_VS_BAS</code></td><td>532</td><td>Entity by period reconciliation against lodged BAS.</td></tr>
@@ -64,16 +64,16 @@ ORDER BY SORT_KEY;</code></pre></div>
 </table>
 
 <div class="info-box warning"><span class="icon">🔧</span><div><strong>If any count is zero</strong><p>A zero means the object exists but was never populated, or the schema was created and the load
-never ran. Re-run the Lab 1 Step 1 setup script in full and then re-run this query. If a statement
+never ran. Re-run <code>gsi_tax_lab0_setup.ipynb</code> in full and then re-run this query. If a statement
 fails with an object-not-found error instead of returning zero, the object was never created at all
 and Lab 1 needs to be worked through from the beginning. Do not proceed into the AI steps with a
 partial foundation — the failures will look like AI problems and they will not be.</p></div></div>
 
 <p>The 300-row table is the one to notice. It is the only object in the account holding free text,
-it has been sitting there since Lab 1 completely unused, and it is where the next four steps
+it has been sitting there since setup completely unused, and it is where the next four steps
 happen. Everything a human wrote about these transactions is in there, and so far nothing in your
 pipeline has been able to do anything with it.</p>
 
-<div class="info-box success"><span class="icon">✅</span><div><strong>Where you are</strong><p>Foundation verified across four layers. The governed ledger, the determination rules and the
+<div class="info-box success"><span class="icon">✅</span><div><strong>Foundation verified</strong><p>Foundation verified across four layers. The governed ledger, the determination rules and the
 exception register are all intact and queryable. From here on, every object you create reads from
 them rather than replacing them.</p></div></div>

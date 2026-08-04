@@ -30,7 +30,12 @@ import snowflake.connector
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 CONN = "staub_uswest_primary_pat"
-NB = {"lab1": "gsi_tax_lab1_foundation.ipynb", "lab2": "gsi_tax_lab2_cortex_ai.ipynb"}
+NB = {
+    "setup": "gsi_tax_lab0_setup.ipynb",
+    "lab1": "gsi_tax_lab1_foundation.ipynb",
+    "lab2": "gsi_tax_lab2_cortex_ai.ipynb",
+    "reset": "gsi_tax_reset.ipynb",
+}
 
 def connect():
     """One connection for the whole run, so session state persists across cells
@@ -49,6 +54,8 @@ def connect():
 # Cells that are DESIGNED to raise. The error is the lesson, so the gate must
 # assert that they fail - if one of these ever passes, the teaching point is gone.
 EXPECT_FAIL = {
+    "setup": {},
+    "reset": {},
     "lab1": {
         "step2_block2": "naive UNION ALL must fail on the type mismatch",
         "step3_block1a": "strict TO_DATE must fail on the unparseable legacy date",
@@ -58,6 +65,20 @@ EXPECT_FAIL = {
 
 # name -> reason. These need a human or a UI action; they are not notebook defects.
 SKIP = {
+    # Setup has nothing to skip: every cell must run, because everything the two
+    # labs depend on is created here.
+    "setup": {},
+    # Every reset cell is destructive, so none of them run on a bare
+    # `run_notebook.py reset`. Target one deliberately instead:
+    #   run_notebook.py reset --only step1   clear Lab 2, keep the ledger
+    #   run_notebook.py reset --only step2   clear Lab 1, keep the generated data
+    #   run_notebook.py reset --only step3   drop everything
+    #   run_notebook.py reset --only step4   read-only, safe any time
+    "reset": {
+        "step1_block1": "drops Lab 2 - run deliberately with --only step1",
+        "step2_block1": "drops Lab 1 - run deliberately with --only step2",
+        "step3_block1": "drops everything - run deliberately with --only step3",
+    },
     "lab1": {
         "step6_block1": "Streamlit app - renders in notebook, nothing to assert headlessly",
     },
@@ -110,7 +131,9 @@ def main():
     for name, lang, src in cells(lab):
         if only and not name.startswith(only):
             continue
-        if name in SKIP[lab]:
+        if name in SKIP[lab] and not only:
+            # A bare run skips cells that need a human or destroy state. Naming a
+            # cell with --only is that deliberate act, so the skip is bypassed.
             results.append((name, "SKIP", SKIP[lab][name]))
             print(f"  SKIP {name:18} {SKIP[lab][name]}")
             continue

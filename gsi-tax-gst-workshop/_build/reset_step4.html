@@ -1,0 +1,31 @@
+<div class="beat" data-beat="business">
+<p><strong>Confirm what is actually left.</strong> Whichever section you ran, this reports the state of
+the account so you are not guessing. It changes nothing, so it is safe to run at any time.</p>
+</div>
+
+<div class="beat" data-beat="decision">
+<p><strong>Plain <code>SHOW</code>, with no <code>SELECT</code> wrapped around it.</strong> The tidier
+version of this section counted the rows with <code>RESULT_SCAN</code>, which reads better but needs a
+warehouse &mdash; and after a full teardown there is no warehouse left, so the check that confirms the
+teardown could not run. <code>SHOW</code> is a metadata operation and needs no compute, which is exactly
+what a post-teardown verification requires. Zero rows means gone.</p>
+</div>
+
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- Databases. After a full teardown: no rows. After a Lab 1 or Lab 2 reset:
+-- GSI_TAX_WORKSHOP is still listed, which is correct.
+SHOW TERSE DATABASES LIKE 'GSI_TAX%';</code></pre></div>
+
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- The warehouse. Only the full teardown removes this one.
+SHOW TERSE WAREHOUSES LIKE 'GSI_TAX%';</code></pre></div>
+
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- The audit share. Every section above drops this, so it should always be empty.
+-- A share left behind is the one leftover that blocks the database being dropped
+-- later, which is why all three sections remove it.
+SHOW SHARES LIKE 'GST_AUDIT%';</code></pre></div>
+
+<div class="beat" data-beat="prove">
+<p><strong>Three grids, and what they should show depends on which section you ran.</strong> After a full
+teardown all three are empty. After a Lab 1 or Lab 2 reset the database and warehouse are still there
+and only the share is gone. To rebuild from nothing, run
+<code>gsi_tax_lab0_setup.ipynb</code>, then Lab 1, then Lab 2.</p>
+</div>

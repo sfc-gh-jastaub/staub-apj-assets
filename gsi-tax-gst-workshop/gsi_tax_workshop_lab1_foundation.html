@@ -867,7 +867,7 @@ table tbody tr:nth-child(even) { background: var(--gray-50); }
         <div class="hero-meta">
             <div class="meta-item">
                 <span class="meta-label">Duration</span>
-                <span class="meta-value">60 min core + 28 min optional</span>
+                <span class="meta-value">57 min core + 28 min optional</span>
             </div>
             <div class="meta-item">
                 <span class="meta-label">Difficulty</span>
@@ -896,7 +896,7 @@ table tbody tr:nth-child(even) { background: var(--gray-50); }
             <div class="overview-card">
                 <h3>What you will build</h3>
                 <ul class="learning-list">
-                    <li>Load three deliberately incompatible ERP extracts — 2,400,000 general ledger lines — with one paste-and-run script.</li>
+                    <li>Inspect the three deliberately incompatible ERP extracts — 2,400,000 general ledger lines — exactly as they landed.</li>
                     <li>Prove in three queries that the group GST position is currently unanswerable, and quantify exactly why.</li>
                     <li>Conform all three systems into <code>CURATED.GL_HARMONISED</code>, a Dynamic Table that maintains itself and contains no tax logic.</li>
                     <li>Build the tax rules layer as data the tax team owns: a decision table, effective-dated rates, and thin generic SQL that applies them.</li>
@@ -936,8 +936,8 @@ table tbody tr:nth-child(even) { background: var(--gray-50); }
         <div class="steps-nav" id="stepsNav">
             <a class="step-nav-item" href="#step-1" data-step="1">
                 <span class="nav-index">1</span>
-                <span class="nav-text">Land the raw data and look around</span>
-                <span class="nav-time">8 min</span>
+                <span class="nav-text">Verify the foundation and look around</span>
+                <span class="nav-time">5 min</span>
             </a>
             <a class="step-nav-item" href="#step-2" data-step="2">
                 <span class="nav-index">2</span>
@@ -991,611 +991,65 @@ table tbody tr:nth-child(even) { background: var(--gray-50); }
 <div class="step-card" id="step-1">
     <div class="step-header" onclick="toggleStep(1)">
         <span class="step-number">1</span>
-        <h2 class="step-title">Land the raw data and look around</h2>
-        <span class="step-duration">~8 min</span>
+        <h2 class="step-title">Verify the foundation and look around</h2>
+        <span class="step-duration">~5 min</span>
     </div>
     <div class="step-content">
-<p>Your client's tax function spends most of its working year finding, cleaning and
-reconciling data before any analysis begins. We are going to skip the part where that takes six
-weeks. One script, one paste, and you will have three ERP extracts that describe the same
-business in three incompatible shapes.</p>
+<div class="beat" data-beat="business">
+<p><strong>What the tax practice is up against.</strong> The group has three general ledgers, inherited
+from a decade of acquisitions. A partner will shortly ask what the group's GST position is. Before you
+can even attempt that, you need to see what the three systems actually send &mdash; because they do not
+describe the business the same way.</p>
+</div>
 
-<h3>Build the environment and land the extracts</h3>
+<p>First confirm the setup notebook has run and left you a complete foundation.</p>
 
-<p>Run the whole script in one go — a single SQL cell if you are in the notebook, or a single
-paste into a Snowsight worksheet. It creates the warehouse, the
-database, seven schemas, all eight <code>RAW_DATA</code> tables, the two tax rule tables, and
-finishes with a verification query. Nothing else needs to be typed.</p>
-
-<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- =====================================================================
--- GSI TAX WORKSHOP — LAB 1 STEP 1 SETUP
--- Builds warehouse, database, 7 schemas and all 8 RAW_DATA tables.
--- Target: 2,400,000 GL lines. Runtime target: under 2 minutes on SMALL.
--- =====================================================================
-
-CREATE WAREHOUSE IF NOT EXISTS GSI_TAX_WH
-    WAREHOUSE_SIZE = 'SMALL'
-    AUTO_SUSPEND = 60
-    AUTO_RESUME = TRUE
-    INITIALLY_SUSPENDED = FALSE;
-
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- Point the session at the workshop, then confirm the foundation is complete.
+-- Every STATUS must read OK. If one does not, run gsi_tax_lab0_setup.ipynb.
 USE WAREHOUSE GSI_TAX_WH;
-
-CREATE OR REPLACE DATABASE GSI_TAX_WORKSHOP;
 USE DATABASE GSI_TAX_WORKSHOP;
 
-CREATE SCHEMA IF NOT EXISTS RAW_DATA;
-CREATE SCHEMA IF NOT EXISTS CURATED;
-CREATE SCHEMA IF NOT EXISTS TAX;
-CREATE SCHEMA IF NOT EXISTS AI_INSIGHTS;
-CREATE SCHEMA IF NOT EXISTS AGENTS;
-CREATE SCHEMA IF NOT EXISTS APPS;
-CREATE SCHEMA IF NOT EXISTS AUDIT;
+SELECT 'Raw tables landed'          AS CHECK_NAME,
+       COUNT(*)::VARCHAR            AS FOUND,
+       '8'                          AS EXPECTED,
+       IFF(COUNT(*) = 8, 'OK', 'run gsi_tax_lab0_setup.ipynb') AS STATUS
+FROM INFORMATION_SCHEMA.TABLES
+WHERE TABLE_SCHEMA = 'RAW_DATA'
 
--- ---------------------------------------------------------------------
--- DIM_LEGAL_ENTITY — 14 rows. The crosswalk: three ERP identifiers,
--- one group entity. NULLs mean the entity does not exist in that system.
--- ---------------------------------------------------------------------
-CREATE OR REPLACE TABLE RAW_DATA.DIM_LEGAL_ENTITY (
-    ENTITY_ID            VARCHAR(10),
-    ENTITY_NAME          VARCHAR(100),
-    ABN                  VARCHAR(14),
-    JURISDICTION         VARCHAR(2),
-    GST_REGISTERED       BOOLEAN,
-    FUNCTIONAL_CURRENCY  VARCHAR(3),
-    SAP_BUKRS            VARCHAR(4),
-    ORACLE_LEDGER_ID     VARCHAR(10),
-    LEGACY_ENTITY_CD     VARCHAR(6)
-);
-
-INSERT INTO RAW_DATA.DIM_LEGAL_ENTITY VALUES
-('ENT001','Southern Cross Industrial Pty Ltd'  ,'51 824 753 556','AU',TRUE,'AUD','1010','LED_2001','AU01'),
-('ENT002','Wattle Grove Logistics Pty Ltd'     ,'47 116 942 308','AU',TRUE,'AUD','1020','LED_2002','AU02'),
-('ENT003','Kurrajong Manufacturing Pty Ltd'    ,'62 903 471 225','AU',TRUE,'AUD','1030','LED_2003','AU03'),
-('ENT004','Boronia Retail Group Pty Ltd'       ,'19 558 260 714','AU',TRUE,'AUD','1040','LED_2004','AU04'),
-('ENT005','Jarrah Point Services Pty Ltd'      ,'83 742 019 631','AU',TRUE,'AUD','1050','LED_2005','AU05'),
-('ENT006','Kingsford Property Holdings Pty Ltd','35 601 887 452','AU',TRUE,'AUD','1060',NULL      ,'AU06'),
-('ENT007','Tallowood Energy Pty Ltd'           ,'74 229 653 108','AU',TRUE,'AUD','1070','LED_2007',NULL ),
-('ENT008','Marrickville Food Co Pty Ltd'       ,'28 470 315 967','AU',TRUE,'AUD',NULL  ,'LED_2008','AU08'),
-('ENT009','Barwon Health Services Pty Ltd'     ,'91 386 724 540','AU',TRUE,'AUD','1090','LED_2009','AU09'),
-('ENT010','Coolibah Finance Pty Ltd'           ,'66 052 918 379','AU',TRUE,'AUD','1100','LED_2010','AU10'),
-('ENT011','Yarra Bend Education Pty Ltd'       ,'12 745 660 283','AU',TRUE,'AUD','1110','LED_2011','AU11'),
-('ENT012','Nullarbor Freight Pty Ltd'          ,'58 913 407 176','AU',TRUE,'AUD',NULL  ,'LED_2012','AU12'),
-('ENT013','Bass Strait Holdings Pty Ltd'       ,'40 268 591 734','AU',TRUE,'AUD','1130','LED_2013',NULL ),
-('ENT014','Perisher Plant Hire Pty Ltd'        ,'77 634 128 905','AU',TRUE,'AUD','1140',NULL      ,'AU14');
-
--- ---------------------------------------------------------------------
--- DIM_ACCOUNT_MAPPING — 180 rows (60 per system).
--- GL uses codes 1..62 per system; mapping covers 1..60.
--- Result: ~3.2% of GL lines have no mapping (an alarming number at
--- 2.4M rows, without drowning the exception register).
--- ---------------------------------------------------------------------
-CREATE OR REPLACE TABLE RAW_DATA.DIM_ACCOUNT_MAPPING AS
-WITH cats AS (
-  SELECT ARRAY_CONSTRUCT(
-    'STANDARD_GOODS','STANDARD_SERVICES','PROFESSIONAL_FEES','ENTERTAINMENT',
-    'RESIDENTIAL_RENT','FINANCIAL_SUPPLY','EXPORT_SALES','FOOD_BASIC',
-    'MEDICAL','EDUCATION','CAPITAL_EQUIPMENT') AS C
-),
-n AS (SELECT SEQ4() + 1 AS I FROM TABLE(GENERATOR(ROWCOUNT =&gt; 60))),
-s AS (SELECT 'SAP' AS SYS UNION ALL SELECT 'ORACLE' UNION ALL SELECT 'LEGACY')
-SELECT
-    ROW_NUMBER() OVER (ORDER BY s.SYS, n.I)                       AS MAPPING_ID,
-    s.SYS                                                          AS SOURCE_SYSTEM,
-    CASE s.SYS
-      WHEN 'SAP'    THEN '4'     || LPAD(n.I::VARCHAR, 5, '0')
-      WHEN 'ORACLE' THEN '5100-' || LPAD(n.I::VARCHAR, 4, '0')
-      ELSE               'AP'    || LPAD(n.I::VARCHAR, 3, '0')
-    END                                                            AS NATIVE_ACCOUNT_CODE,
-    'GL' || LPAD((MOD(n.I - 1, 11) * 10 + 1000)::VARCHAR, 6, '0')  AS GROUP_ACCOUNT_CODE,
-    INITCAP(REPLACE(cats.C[MOD(n.I - 1, 11)]::VARCHAR, '_', ' '))  AS GROUP_ACCOUNT_NAME,
-    cats.C[MOD(n.I - 1, 11)]::VARCHAR                              AS SUPPLY_CATEGORY
-FROM n, s, cats;
-
--- ---------------------------------------------------------------------
--- DIM_SUPPLIER — 2,000 rows. 5% no ABN, 8% not GST registered.
--- ---------------------------------------------------------------------
-CREATE OR REPLACE TABLE RAW_DATA.DIM_SUPPLIER AS
-WITH p AS (
-  SELECT ARRAY_CONSTRUCT('Acacia','Redgum','Bluestone','Harbourside','Pinnacle','Meridian',
-         'Clearwater','Ironbark','Sandstone','Northwind','Fairmont','Brightwater','Stirling',
-         'Camperdown','Glenrowan','Yarraville','Bellevue','Crestwood','Darlington','Eastgate') AS PRE,
-         ARRAY_CONSTRUCT('Supplies','Services','Group','Partners','Holdings','Industries',
-         'Consulting','Logistics','Trading','Systems','Solutions','Contractors','Advisory',
-         'Enterprises','Distributors') AS SUF,
-         ARRAY_CONSTRUCT('AU','AU','AU','AU','AU','AU','AU','AU','AU','AU','AU','AU','AU',
-         'NZ','NZ','SG','SG','US','GB','GB') AS CTRY
+UNION ALL
+SELECT 'GL lines across three ERPs',
+       TO_VARCHAR(SUM(N), '999,999,999'), '2,400,000',
+       IFF(SUM(N) = 2400000, 'OK', 'run gsi_tax_lab0_setup.ipynb')
+FROM (
+    SELECT COUNT(*) AS N FROM RAW_DATA.ERP_SAP_GL
+    UNION ALL SELECT COUNT(*) FROM RAW_DATA.ERP_ORACLE_GL
+    UNION ALL SELECT COUNT(*) FROM RAW_DATA.ERP_LEGACY_AP
 )
-SELECT
-    'SUP' || LPAD((SEQ4() + 1)::VARCHAR, 6, '0')                                  AS SUPPLIER_ID,
-    p.PRE[UNIFORM(0,19,RANDOM(1001))]::VARCHAR || ' ' ||
-    p.SUF[UNIFORM(0,14,RANDOM(1002))]::VARCHAR || ' Pty Ltd'                          AS SUPPLIER_NAME,
-    CASE WHEN UNIFORM(1,100,RANDOM(1003)) &lt;= 5 THEN NULL
-         ELSE LPAD(UNIFORM(10,99,RANDOM(1004))::VARCHAR,2,'0') || ' ' ||
-              LPAD(UNIFORM(100,999,RANDOM(1005))::VARCHAR,3,'0') || ' ' ||
-              LPAD(UNIFORM(100,999,RANDOM(1006))::VARCHAR,3,'0') || ' ' ||
-              LPAD(UNIFORM(100,999,RANDOM(1007))::VARCHAR,3,'0')
-    END                                                                            AS SUPPLIER_ABN,
-    IFF(UNIFORM(1,100,RANDOM(1008)) &lt;=  8, FALSE, TRUE)                                AS GST_REGISTERED,
-    p.CTRY[UNIFORM(0,19,RANDOM(1009))]::VARCHAR                                        AS SUPPLIER_COUNTRY
-FROM TABLE(GENERATOR(ROWCOUNT =&gt; 2000)), p;
 
--- ---------------------------------------------------------------------
--- ERP_SAP_GL — 1,200,000 rows. Signed amounts, YYYYMMDD text dates.
--- NOTE: 1,200,000 &gt; 1,048,576 (the Excel row limit) — deliberate.
--- ---------------------------------------------------------------------
-CREATE OR REPLACE TABLE RAW_DATA.ERP_SAP_GL AS
-WITH p AS (
-  SELECT ARRAY_CONSTRUCT('1010','1020','1030','1040','1050','1060','1070','1090','1100','1110','1130','1140') AS BK,
-         ARRAY_CONSTRUCT('Freight and cartage','External consulting fee','Client hospitality',
-           'Raw material purchase','Bank facility fee','Premises lease','Staff training course',
-           'Software subscription','Equipment purchase','Audit and assurance fee',
-           'Canteen provisions','Medical screening') AS TXT
-),
-b AS (
-  SELECT
-    'SAP' || LPAD((SEQ4() + 1)::VARCHAR, 7, '0')                                AS BELNR,
-    UNIFORM(1, 8, RANDOM(1010))                                                     AS BUZEI,
-    p.BK[UNIFORM(0,11,RANDOM(1011))]::VARCHAR                                       AS BUKRS,
-    '4' || LPAD(UNIFORM(1, 62, RANDOM(1012))::VARCHAR, 5, '0')                      AS HKONT,
-    DATEADD('day', (DATEDIFF('day','2023-06-01'::DATE, '2026-07-31'::DATE)
-            * UNIFORM(0::FLOAT, 1::FLOAT, RANDOM(1013)))::INT, '2023-06-01'::DATE)  AS D,
-    UNIFORM(50, 250000, RANDOM(1014))                                               AS AMT,
-    'SUP' || LPAD(UNIFORM(1, 2000, RANDOM(1015))::VARCHAR, 6, '0')                  AS LIFNR,
-    CASE WHEN UNIFORM(1,100,RANDOM(1016)) &lt;= 65 THEN 'AP_INVOICE'
-         WHEN UNIFORM(1,100,RANDOM(1017)) &lt;= 88 THEN 'AR_INVOICE'
-         ELSE 'CREDIT_NOTE' END                                                 AS DOC_TYPE,
-    p.TXT[UNIFORM(0,11,RANDOM(1018))]::VARCHAR                                      AS SGTXT,
-    UNIFORM(1,1000,RANDOM(1019))                                                    AS R_DISTORT,
-    UNIFORM(1,100,RANDOM(1020))                                                     AS R_UNREG_TAX,
-    UNIFORM(1,100,RANDOM(1021))                                                     AS R_IT_WRONG
-  FROM TABLE(GENERATOR(ROWCOUNT =&gt; 1200000)), p
-),
-j AS (
-  SELECT b.*, m.SUPPLY_CATEGORY, s.GST_REGISTERED,
-         -- booked tax code and rate follow the account's supply category
-         CASE
-           WHEN s.GST_REGISTERED = FALSE THEN IFF(b.R_UNREG_TAX &lt;= 15, 'S1', 'S0')
-           WHEN m.SUPPLY_CATEGORY IN ('RESIDENTIAL_RENT','FINANCIAL_SUPPLY')
-                THEN IFF(b.R_IT_WRONG &lt;= 10, 'S1', 'IT')
-           WHEN m.SUPPLY_CATEGORY = 'EXPORT_SALES'                     THEN 'EX'
-           WHEN m.SUPPLY_CATEGORY IN ('FOOD_BASIC','MEDICAL','EDUCATION') THEN 'ZF'
-           ELSE 'S1'
-         END                                                                    AS MWSKZ
-  FROM b
-  LEFT JOIN RAW_DATA.DIM_ACCOUNT_MAPPING m
-         ON m.SOURCE_SYSTEM = 'SAP' AND m.NATIVE_ACCOUNT_CODE = b.HKONT
-  LEFT JOIN RAW_DATA.DIM_SUPPLIER s ON s.SUPPLIER_ID = b.LIFNR
-)
-SELECT
-    BELNR, BUZEI, BUKRS, HKONT,
-    TO_VARCHAR(D, 'YYYYMMDD')                                                   AS BUDAT,
-    ROUND(AMT * IFF(DOC_TYPE = 'AP_INVOICE', 1, -1), 2)                         AS DMBTR,
-    ROUND(
-      IFF(MWSKZ = 'S1', AMT * 0.10, 0)
-      * IFF(DOC_TYPE = 'AP_INVOICE', 1, -1)
-      * IFF(R_DISTORT &lt;=  5, UNIFORM(40, 160, RANDOM(1022)) / 100.0, 1.0)
-    , 2)                                                                        AS MWSTS,
-    'AUD'                                                                       AS WAERS,
-    MWSKZ, LIFNR, DOC_TYPE, SGTXT
-FROM j;
+UNION ALL
+SELECT 'Tax rules the team owns',
+       (SELECT COUNT(*)::VARCHAR FROM TAX.TAX_RULE_DETERMINATION), '16',
+       IFF((SELECT COUNT(*) FROM TAX.TAX_RULE_DETERMINATION) = 16, 'OK', 'run gsi_tax_lab0_setup.ipynb')
 
--- ---------------------------------------------------------------------
--- ERP_ORACLE_GL — 800,000 rows. Native DATE, separate DR/CR columns.
--- ---------------------------------------------------------------------
-CREATE OR REPLACE TABLE RAW_DATA.ERP_ORACLE_GL AS
-WITH p AS (
-  SELECT ARRAY_CONSTRUCT('LED_2001','LED_2002','LED_2003','LED_2004','LED_2005','LED_2007',
-           'LED_2008','LED_2009','LED_2010','LED_2011','LED_2012','LED_2013') AS LG,
-         ARRAY_CONSTRUCT('Professional services rendered','Goods received','Entertainment expense',
-           'Property rental','Interest and bank charges','Export freight','Training and development',
-           'Capital asset acquisition','Consumables','Health services') AS TXT
-),
-b AS (
-  SELECT
-    SEQ4() + 1                                                                  AS JE_HEADER_ID,
-    UNIFORM(1, 8, RANDOM(1023))                                                     AS JE_LINE_NUM,
-    p.LG[UNIFORM(0,11,RANDOM(1024))]::VARCHAR                                       AS LEDGER_ID,
-    '5100-' || LPAD(UNIFORM(1, 62, RANDOM(1025))::VARCHAR, 4, '0')                  AS CODE_COMBINATION,
-    DATEADD('day', (DATEDIFF('day','2023-06-01'::DATE, '2026-07-31'::DATE)
-            * UNIFORM(0::FLOAT, 1::FLOAT, RANDOM(1026)))::INT, '2023-06-01'::DATE)  AS GL_DATE,
-    UNIFORM(50, 250000, RANDOM(1027))                                               AS AMT,
-    'SUP' || LPAD(UNIFORM(1, 2000, RANDOM(1028))::VARCHAR, 6, '0')                  AS VENDOR_ID,
-    CASE WHEN UNIFORM(1,100,RANDOM(1029)) &lt;= 65 THEN 'AP_INVOICE'
-         WHEN UNIFORM(1,100,RANDOM(1030)) &lt;= 88 THEN 'AR_INVOICE'
-         ELSE 'CREDIT_NOTE' END                                                 AS DOC_TYPE,
-    p.TXT[UNIFORM(0,9,RANDOM(1031))]::VARCHAR                                       AS DESCRIPTION,
-    UNIFORM(1,1000,RANDOM(1032))                                                    AS R_DISTORT,
-    UNIFORM(1,100,RANDOM(1033))                                                     AS R_UNREG_TAX,
-    UNIFORM(1,100,RANDOM(1034))                                                     AS R_IT_WRONG
-  FROM TABLE(GENERATOR(ROWCOUNT =&gt; 800000)), p
-),
-j AS (
-  SELECT b.*, m.SUPPLY_CATEGORY, s.GST_REGISTERED,
-         CASE
-           WHEN s.GST_REGISTERED = FALSE THEN IFF(b.R_UNREG_TAX &lt;= 15, 'STANDARD', 'OUT_OF_SCOPE')
-           WHEN m.SUPPLY_CATEGORY IN ('RESIDENTIAL_RENT','FINANCIAL_SUPPLY')
-                THEN IFF(b.R_IT_WRONG &lt;= 10, 'STANDARD', 'EXEMPT')
-           WHEN m.SUPPLY_CATEGORY = 'EXPORT_SALES'                     THEN 'ZERO_RATED'
-           WHEN m.SUPPLY_CATEGORY IN ('FOOD_BASIC','MEDICAL','EDUCATION') THEN 'ZERO_RATED'
-           ELSE 'STANDARD'
-         END                                                                    AS TAX_CLASSIFICATION
-  FROM b
-  LEFT JOIN RAW_DATA.DIM_ACCOUNT_MAPPING m
-         ON m.SOURCE_SYSTEM = 'ORACLE' AND m.NATIVE_ACCOUNT_CODE = b.CODE_COMBINATION
-  LEFT JOIN RAW_DATA.DIM_SUPPLIER s ON s.SUPPLIER_ID = b.VENDOR_ID
-)
-SELECT
-    JE_HEADER_ID, JE_LINE_NUM, LEDGER_ID, CODE_COMBINATION, GL_DATE,
-    IFF(DOC_TYPE = 'AP_INVOICE', ROUND(AMT, 2), NULL)                           AS ENTERED_DR,
-    IFF(DOC_TYPE = 'AP_INVOICE', NULL, ROUND(AMT, 2))                           AS ENTERED_CR,
-    ROUND(
-      IFF(TAX_CLASSIFICATION = 'STANDARD', AMT * 0.10, 0)
-      * IFF(DOC_TYPE = 'AP_INVOICE', 1, -1)   -- sign must match ENTERED_DR/CR
-      * IFF(R_DISTORT &lt;= 5, UNIFORM(40, 160, RANDOM(1035)) / 100.0, 1.0)
-    , 2)                                                                        AS TAX_AMOUNT,
-    'AUD'                                                                       AS CURRENCY_CODE,
-    TAX_CLASSIFICATION, VENDOR_ID, DOC_TYPE, DESCRIPTION
-FROM j;
+UNION ALL
+SELECT 'Lodged BAS entity-periods',
+       (SELECT COUNT(*)::VARCHAR FROM RAW_DATA.FCT_BAS_LODGED), '532',
+       IFF((SELECT COUNT(*) FROM RAW_DATA.FCT_BAS_LODGED) = 532, 'OK', 'run gsi_tax_lab0_setup.ipynb');</code></pre></div>
 
--- ---------------------------------------------------------------------
--- ERP_LEGACY_AP — 400,000 rows. Lower case, DD/MM/YYYY text dates,
--- GST-INCLUSIVE amounts, ~2% unparseable dates.
--- ---------------------------------------------------------------------
-CREATE OR REPLACE TABLE RAW_DATA.ERP_LEGACY_AP AS
-WITH p AS (
-  SELECT ARRAY_CONSTRUCT('AU01','AU02','AU03','AU04','AU05','AU06','AU08','AU09','AU10',
-           'AU11','AU12','AU14') AS EC,
-         ARRAY_CONSTRUCT('sundry purchase','contractor invoice','staff amenities',
-           'office rent','finance charge','freight out','course fees','plant purchase',
-           'stationery','clinic fees') AS TXT
-),
-b AS (
-  SELECT
-    'LEG' || LPAD((SEQ4() + 1)::VARCHAR, 7, '0')                                AS doc_ref,
-    p.EC[UNIFORM(0,11,RANDOM(1036))]::VARCHAR                                       AS entity_cd,
-    'AP' || LPAD(UNIFORM(1, 62, RANDOM(1037))::VARCHAR, 3, '0')                     AS acct,
-    DATEADD('day', (DATEDIFF('day','2023-06-01'::DATE, '2026-07-31'::DATE)
-            * UNIFORM(0::FLOAT, 1::FLOAT, RANDOM(1038)))::INT, '2023-06-01'::DATE)  AS D,
-    UNIFORM(55, 275000, RANDOM(1039))                                               AS GROSS,
-    'SUP' || LPAD(UNIFORM(1, 2000, RANDOM(1040))::VARCHAR, 6, '0')                  AS vendor_ref,
-    IFF(UNIFORM(1,100,RANDOM(1041)) &lt;= 95, 'AP_INVOICE', 'CREDIT_NOTE')             AS doc_type,
-    p.TXT[UNIFORM(0,9,RANDOM(1042))]::VARCHAR                                       AS narrative,
-    UNIFORM(1,1000,RANDOM(1043))                                                    AS R_DISTORT,
-    UNIFORM(1,100,RANDOM(1044))                                                     AS R_UNREG_TAX,
-    UNIFORM(1,100,RANDOM(1045))                                                     AS R_IT_WRONG,
-    UNIFORM(1,1000,RANDOM(1046))                                                    AS R_BADDATE
-  FROM TABLE(GENERATOR(ROWCOUNT =&gt; 400000)), p
-),
-j AS (
-  SELECT b.*, m.SUPPLY_CATEGORY, s.GST_REGISTERED,
-         CASE
-           WHEN s.GST_REGISTERED = FALSE THEN IFF(b.R_UNREG_TAX &lt;= 15, 'Y', 'N')
-           WHEN m.SUPPLY_CATEGORY IN ('RESIDENTIAL_RENT','FINANCIAL_SUPPLY')
-                THEN IFF(b.R_IT_WRONG &lt;= 10, 'Y', 'N')
-           WHEN m.SUPPLY_CATEGORY = 'EXPORT_SALES'                     THEN 'N'
-           WHEN m.SUPPLY_CATEGORY IN ('FOOD_BASIC','MEDICAL','EDUCATION') THEN 'N'
-           WHEN m.SUPPLY_CATEGORY IS NULL                              THEN 'X'
-           ELSE 'Y'
-         END                                                                    AS tax_flag
-  FROM b
-  LEFT JOIN RAW_DATA.DIM_ACCOUNT_MAPPING m
-         ON m.SOURCE_SYSTEM = 'LEGACY' AND m.NATIVE_ACCOUNT_CODE = b.acct
-  LEFT JOIN RAW_DATA.DIM_SUPPLIER s ON s.SUPPLIER_ID = b.vendor_ref
-)
-SELECT
-    doc_ref, entity_cd, acct,
-    CASE WHEN R_BADDATE &lt;=  7 THEN '31/02/2024'
-         WHEN R_BADDATE &lt;= 14 THEN 'N/A'
-         WHEN R_BADDATE &lt;= 20 THEN ''
-         ELSE TO_VARCHAR(D, 'DD/MM/YYYY') END                                   AS txn_dt,
-    ROUND(GROSS, 2)                                                             AS amt_incl_tax,
-    ROUND(
-      IFF(tax_flag IN ('Y','X'), GROSS / 11.0, 0)
-      * IFF(R_DISTORT &lt;=  5, UNIFORM(40, 160, RANDOM(1047)) / 100.0, 1.0)
-    , 2)                                                                        AS tax_amt,
-    'AUD'                                                                       AS curr_cd,
-    tax_flag, vendor_ref, doc_type, narrative
-FROM j;
-
--- ---------------------------------------------------------------------
--- TAX_RULE_DETERMINATION — 16 rows. NULL = wildcard. Lower PRIORITY wins.
--- Rules 9 and 16 are the effective-dated pair: the group corrected its
--- imported-professional-services position with effect from 1 July 2024.
--- ---------------------------------------------------------------------
-CREATE OR REPLACE TABLE TAX.TAX_RULE_DETERMINATION (
-    RULE_ID                 NUMBER,
-    PRIORITY                NUMBER,
-    JURISDICTION            VARCHAR(2),
-    SUPPLY_CATEGORY         VARCHAR(30),
-    SUPPLIER_GST_REGISTERED BOOLEAN,
-    IS_CROSS_BORDER         BOOLEAN,
-    TAX_TREATMENT           VARCHAR(20),
-    RECOVERABLE             BOOLEAN,
-    VALID_FROM              DATE,
-    VALID_TO                DATE,
-    RULE_DESCRIPTION        VARCHAR(200)
-);
-
-INSERT INTO TAX.TAX_RULE_DETERMINATION VALUES
-( 1,10,NULL,'ENTERTAINMENT'    ,NULL ,NULL ,'NON_DEDUCTIBLE',FALSE,'2000-07-01','9999-12-31','Entertainment is taxable but the credit is denied'),
-( 2,10,NULL,'RESIDENTIAL_RENT' ,NULL ,NULL ,'INPUT_TAXED'   ,FALSE,'2000-07-01','9999-12-31','Residential rent is input taxed'),
-( 3,10,NULL,'FINANCIAL_SUPPLY' ,NULL ,NULL ,'INPUT_TAXED'   ,FALSE,'2000-07-01','9999-12-31','Financial supplies are input taxed'),
-( 4,10,NULL,'EXPORT_SALES'     ,NULL ,NULL ,'EXPORT'        ,TRUE ,'2000-07-01','9999-12-31','Exports are GST-free'),
-( 5,15,'AU','FOOD_BASIC'       ,NULL ,NULL ,'GST_FREE'      ,TRUE ,'2000-07-01','9999-12-31','Basic food is GST-free'),
-( 6,15,'AU','MEDICAL'          ,NULL ,NULL ,'GST_FREE'      ,TRUE ,'2000-07-01','9999-12-31','Most medical supplies are GST-free'),
-( 7,15,'AU','EDUCATION'        ,NULL ,NULL ,'GST_FREE'      ,TRUE ,'2000-07-01','9999-12-31','Most education is GST-free'),
-( 8,20,NULL,'STANDARD_SERVICES',FALSE,TRUE ,'REVERSE_CHARGE',TRUE ,'2000-07-01','9999-12-31','Imported service, unregistered offshore supplier - reverse charge'),
-( 9,20,NULL,'PROFESSIONAL_FEES',FALSE,TRUE ,'GST_FREE'      ,FALSE,'2000-07-01','2024-06-30','Imported professional fees - treated as out of scope (position superseded 1 Jul 2024)'),
-(16,20,NULL,'PROFESSIONAL_FEES',FALSE,TRUE ,'REVERSE_CHARGE',TRUE ,'2024-07-01','9999-12-31','Imported professional fees - reverse charge applies (corrected position, from 1 Jul 2024)'),
-(10,30,NULL,NULL               ,FALSE,FALSE,'GST_FREE'      ,FALSE,'2000-07-01','9999-12-31','Domestic unregistered supplier cannot charge GST - no credit'),
-(11,40,NULL,'STANDARD_GOODS'   ,NULL ,NULL ,'TAXABLE'       ,TRUE ,'2000-07-01','9999-12-31','Standard goods are taxable'),
-(12,40,NULL,'STANDARD_SERVICES',NULL ,NULL ,'TAXABLE'       ,TRUE ,'2000-07-01','9999-12-31','Standard services are taxable'),
-(13,40,NULL,'PROFESSIONAL_FEES',NULL ,NULL ,'TAXABLE'       ,TRUE ,'2000-07-01','9999-12-31','Professional fees are taxable'),
-(14,40,NULL,'CAPITAL_EQUIPMENT',NULL ,NULL ,'TAXABLE'       ,TRUE ,'2000-07-01','9999-12-31','Capital acquisitions are taxable, credit available'),
-(15,99,NULL,NULL               ,NULL ,NULL ,'TAXABLE'       ,TRUE ,'2000-07-01','9999-12-31','Catch-all default - review these');
-
--- ---------------------------------------------------------------------
--- TAX_RULE_RATE — 19 rows. 3 jurisdictions x 6 treatments, with the
--- one standard rate split 8% -&gt; 9% at 2024-01-01 so that every
--- (jurisdiction, treatment, date) combination is covered. The non-Australian
--- rows are unused extensibility: no worked example in either lab touches them.
--- The AU rate has not changed since 2000. The table is date-effective
--- anyway, so that if it ever does, nobody edits a query.
--- ---------------------------------------------------------------------
-CREATE OR REPLACE TABLE TAX.TAX_RULE_RATE (
-    RATE_ID       NUMBER,
-    JURISDICTION  VARCHAR(2),
-    TAX_TREATMENT VARCHAR(20),
-    RATE_PCT      NUMBER(5,2),
-    VALID_FROM    DATE,
-    VALID_TO      DATE
-);
-
-INSERT INTO TAX.TAX_RULE_RATE VALUES
-( 1,'AU','TAXABLE'       ,10.00,'2000-07-01','9999-12-31'),
-( 2,'AU','GST_FREE'      , 0.00,'2000-07-01','9999-12-31'),
-( 3,'AU','INPUT_TAXED'   , 0.00,'2000-07-01','9999-12-31'),
-( 4,'AU','EXPORT'        , 0.00,'2000-07-01','9999-12-31'),
-( 5,'AU','REVERSE_CHARGE',10.00,'2000-07-01','9999-12-31'),
-( 6,'AU','NON_DEDUCTIBLE',10.00,'2000-07-01','9999-12-31'),
-( 7,'NZ','TAXABLE'       ,15.00,'2000-07-01','9999-12-31'),
-( 8,'NZ','GST_FREE'      , 0.00,'2000-07-01','9999-12-31'),
-( 9,'NZ','INPUT_TAXED'   , 0.00,'2000-07-01','9999-12-31'),
-(10,'NZ','EXPORT'        , 0.00,'2000-07-01','9999-12-31'),
-(11,'NZ','REVERSE_CHARGE',15.00,'2000-07-01','9999-12-31'),
-(12,'NZ','NON_DEDUCTIBLE',15.00,'2000-07-01','9999-12-31'),
-(13,'SG','TAXABLE'       , 8.00,'2000-07-01','2023-12-31'),
-(19,'SG','TAXABLE'       , 9.00,'2024-01-01','9999-12-31'),
-(14,'SG','GST_FREE'      , 0.00,'2000-07-01','9999-12-31'),
-(15,'SG','INPUT_TAXED'   , 0.00,'2000-07-01','9999-12-31'),
-(16,'SG','EXPORT'        , 0.00,'2000-07-01','9999-12-31'),
-(17,'SG','REVERSE_CHARGE', 9.00,'2000-07-01','9999-12-31'),
-(18,'SG','NON_DEDUCTIBLE', 9.00,'2000-07-01','9999-12-31');
-
--- ---------------------------------------------------------------------
--- Transient helper: harmonise + determine, used only to derive the
--- lodged BAS. Dropped at the end of this script.
--- ---------------------------------------------------------------------
-CREATE OR REPLACE TRANSIENT TABLE RAW_DATA._TMP_DETERMINED AS
-WITH u AS (
-    SELECT 'SAP' AS SOURCE_SYSTEM, BUKRS AS SRC_ENTITY, HKONT AS ACCT,
-           TRY_TO_DATE(BUDAT,'YYYYMMDD') AS DOC_DATE, DMBTR AS NET_AMOUNT,
-           MWSTS AS BOOKED_TAX_AMOUNT, LIFNR AS SUPPLIER_ID, DOC_TYPE
-    FROM RAW_DATA.ERP_SAP_GL
-    UNION ALL
-    SELECT 'ORACLE', LEDGER_ID, CODE_COMBINATION, GL_DATE,
-           COALESCE(ENTERED_DR,0) - COALESCE(ENTERED_CR,0), TAX_AMOUNT, VENDOR_ID, DOC_TYPE
-    FROM RAW_DATA.ERP_ORACLE_GL
-    UNION ALL
-    SELECT 'LEGACY', entity_cd, acct, TRY_TO_DATE(txn_dt,'DD/MM/YYYY'),
-           amt_incl_tax - tax_amt, tax_amt, vendor_ref, doc_type
-    FROM RAW_DATA.ERP_LEGACY_AP
-),
-h AS (
-    SELECT u.*, e.ENTITY_ID, e.JURISDICTION, m.SUPPLY_CATEGORY,
-           s.GST_REGISTERED AS SUPPLIER_GST_REGISTERED,
-           (s.SUPPLIER_COUNTRY &lt;&gt; e.JURISDICTION) AS IS_CROSS_BORDER,
-           DATE_TRUNC('month', u.DOC_DATE) AS TAX_PERIOD
-    FROM u
-    LEFT JOIN RAW_DATA.DIM_LEGAL_ENTITY e
-           ON (u.SOURCE_SYSTEM='SAP'    AND e.SAP_BUKRS        = u.SRC_ENTITY)
-           OR (u.SOURCE_SYSTEM='ORACLE' AND e.ORACLE_LEDGER_ID = u.SRC_ENTITY)
-           OR (u.SOURCE_SYSTEM='LEGACY' AND e.LEGACY_ENTITY_CD = u.SRC_ENTITY)
-    LEFT JOIN RAW_DATA.DIM_ACCOUNT_MAPPING m
-           ON m.SOURCE_SYSTEM = u.SOURCE_SYSTEM AND m.NATIVE_ACCOUNT_CODE = u.ACCT
-    LEFT JOIN RAW_DATA.DIM_SUPPLIER s ON s.SUPPLIER_ID = u.SUPPLIER_ID
-),
-d AS (
-    SELECT h.ENTITY_ID, h.TAX_PERIOD, h.JURISDICTION, h.DOC_TYPE, h.NET_AMOUNT,
-           r.TAX_TREATMENT, r.RECOVERABLE
-    FROM h
-    JOIN TAX.TAX_RULE_DETERMINATION r
-      ON (r.JURISDICTION            IS NULL OR r.JURISDICTION            = h.JURISDICTION)
-     AND (r.SUPPLY_CATEGORY         IS NULL OR r.SUPPLY_CATEGORY         = h.SUPPLY_CATEGORY)
-     AND (r.SUPPLIER_GST_REGISTERED IS NULL OR r.SUPPLIER_GST_REGISTERED = h.SUPPLIER_GST_REGISTERED)
-     AND (r.IS_CROSS_BORDER         IS NULL OR r.IS_CROSS_BORDER         = h.IS_CROSS_BORDER)
-     AND h.DOC_DATE BETWEEN r.VALID_FROM AND r.VALID_TO
-    WHERE h.DOC_DATE IS NOT NULL AND h.ENTITY_ID IS NOT NULL
-    QUALIFY ROW_NUMBER() OVER (
-        PARTITION BY h.SOURCE_SYSTEM, h.SRC_ENTITY, h.ACCT, h.DOC_DATE,
-                     h.NET_AMOUNT, h.SUPPLIER_ID, h.DOC_TYPE
-        ORDER BY r.PRIORITY, r.RULE_ID) = 1
-)
-SELECT d.ENTITY_ID, d.TAX_PERIOD, d.DOC_TYPE, d.RECOVERABLE,
-       ROUND(d.NET_AMOUNT * rt.RATE_PCT / 100, 2) AS EXPECTED_TAX_AMOUNT,
-       d.NET_AMOUNT
-FROM d
-LEFT JOIN TAX.TAX_RULE_RATE rt
-       ON rt.JURISDICTION  = d.JURISDICTION
-      AND rt.TAX_TREATMENT = d.TAX_TREATMENT
-      AND d.TAX_PERIOD BETWEEN rt.VALID_FROM AND rt.VALID_TO;
-
--- ---------------------------------------------------------------------
--- FCT_BAS_LODGED — 10 AU entities x every complete month in the window.
--- ~8 entity-periods deliberately distorted (deterministic via HASH).
--- ---------------------------------------------------------------------
-CREATE OR REPLACE TABLE RAW_DATA.FCT_BAS_LODGED AS
-WITH spine AS (
-    -- One row per COMPLETE month in the GL window (2023-06-01 .. last month),
-    -- so the reconciliation has no orphan periods on either side.
-    SELECT TAX_PERIOD FROM (
-        SELECT DATEADD('month', SEQ4(), '2023-06-01'::DATE) AS TAX_PERIOD
-        FROM TABLE(GENERATOR(ROWCOUNT =&gt; 600))
-    ) WHERE TAX_PERIOD &lt; '2026-08-01'::DATE
-),
-au AS (SELECT ENTITY_ID FROM RAW_DATA.DIM_LEGAL_ENTITY WHERE JURISDICTION = 'AU'),
-grid AS (SELECT au.ENTITY_ID, spine.TAX_PERIOD FROM au, spine),
-agg AS (
-    SELECT g.ENTITY_ID, g.TAX_PERIOD,
-           COALESCE(ABS(SUM(CASE WHEN t.DOC_TYPE='AR_INVOICE' THEN t.NET_AMOUNT END)), 0) AS G1,
-           COALESCE(ABS(SUM(CASE WHEN t.DOC_TYPE='AP_INVOICE' THEN t.NET_AMOUNT END)), 0) AS G11,
-           COALESCE(ABS(SUM(CASE WHEN t.DOC_TYPE='AR_INVOICE' THEN t.EXPECTED_TAX_AMOUNT END)), 0) AS L1A,
-           COALESCE(ABS(SUM(CASE WHEN t.DOC_TYPE='AP_INVOICE' AND t.RECOVERABLE
-                                 THEN t.EXPECTED_TAX_AMOUNT END)), 0) AS L1B
-    FROM grid g
-    LEFT JOIN RAW_DATA._TMP_DETERMINED t
-           ON t.ENTITY_ID = g.ENTITY_ID AND t.TAX_PERIOD = g.TAX_PERIOD
-    GROUP BY g.ENTITY_ID, g.TAX_PERIOD
-),
-dist AS (
-    SELECT agg.*,
-           CASE MOD(ABS(HASH(ENTITY_ID, TAX_PERIOD)), 90)
-                WHEN 0 THEN 0.85
-                WHEN 1 THEN 1.12
-                ELSE 1.00 END AS F
-    FROM agg
-)
-SELECT
-    ROW_NUMBER() OVER (ORDER BY ENTITY_ID, TAX_PERIOD)  AS LODGEMENT_ID,
-    ENTITY_ID,
-    TAX_PERIOD,
-    ROUND(G1  * F, 2)                                   AS G1_TOTAL_SALES,
-    ROUND(G11 * F, 2)                                   AS G11_NON_CAP_PURCHASES,
-    ROUND(L1A * F, 2)                                   AS LABEL_1A_GST_ON_SALES,
-    ROUND(L1B * F, 2)                                   AS LABEL_1B_GST_CREDITS,
-    ROUND(L1A * F, 2) - ROUND(L1B * F, 2)               AS NET_GST,
-    DATEADD('day', 21, LAST_DAY(TAX_PERIOD))            AS LODGED_DATE,
-    ARRAY_CONSTRUCT('R. Whitlam','P. Nguyen','A. Kowalski','S. Fraser','M. Devi')
-        [MOD(ABS(HASH(ENTITY_ID)), 5)]::VARCHAR         AS LODGED_BY
-FROM dist;
-
-DROP TABLE IF EXISTS RAW_DATA._TMP_DETERMINED;
-
--- ---------------------------------------------------------------------
--- DOC_TAX_INVOICE — 300 rows, selected from real SAP GL lines so the
--- join back to the curated ledger always resolves.
--- ~25% carry a narrative that disagrees with the booked category.
--- ---------------------------------------------------------------------
-CREATE OR REPLACE TABLE RAW_DATA.DOC_TAX_INVOICE AS
-WITH p AS (
-  SELECT
-    ARRAY_CONSTRUCT('STANDARD_GOODS','STANDARD_SERVICES','PROFESSIONAL_FEES','ENTERTAINMENT',
-      'RESIDENTIAL_RENT','FINANCIAL_SUPPLY','EXPORT_SALES','FOOD_BASIC','MEDICAL','EDUCATION',
-      'CAPITAL_EQUIPMENT') AS CATS,
-    ARRAY_CONSTRUCT(
-      'Steel stock purchase, mill certificate attached, delivered to Altona works.',
-      'Annual software subscription billed from our United States parent entity.',
-      'Monthly external audit and assurance fees for the year ended 30 June.',
-      'Client dinner and drinks, six attendees, restaurant in the CBD.',
-      'Residential apartment lease for a relocated employee, 12 month term.',
-      'Bank facility arrangement fee on the renewed working capital line.',
-      'Sea freight ex Melbourne, export consignment, FOB terms.',
-      'Unprocessed fruit and vegetables supplied to the staff canteen.',
-      'Corporate health screening clinic for warehouse staff.',
-      'Accredited training course for the finance team, four attendees.',
-      'Forklift purchase, capitalised to plant and equipment.') AS NARR,
-    ARRAY_CONSTRUCT(
-      'Thanks for the prompt payment, much appreciated as always.',
-      'This invoice is now 45 days overdue. Please advise payment date immediately.',
-      'Please note our banking details have changed from this month.',
-      'We have credited the duplicate charge on your previous statement.',
-      'Escalating this to our credit team - third reminder sent with no response.',
-      'Happy to extend the discount if you settle within seven days.',
-      'Our ABN was updated last quarter, please refresh your vendor master.',
-      'Delivery was late and two units were damaged. Requesting partial credit.') AS CORR
-),
-base AS (
-  SELECT g.BELNR, g.LIFNR, m.SUPPLY_CATEGORY, s.SUPPLIER_ABN,
-         UNIFORM(1,100,RANDOM(1048)) AS MISCODE_R,
-         UNIFORM(1,10,RANDOM(1049))  AS SHIFT_R,
-         UNIFORM(1,100,RANDOM(1050)) AS ABN_R,
-         UNIFORM(0,7,RANDOM(1051))   AS CORR_R,
-         ROW_NUMBER() OVER (ORDER BY g.BELNR) AS RN
-  FROM RAW_DATA.ERP_SAP_GL g
-  JOIN RAW_DATA.DIM_ACCOUNT_MAPPING m
-    ON m.SOURCE_SYSTEM='SAP' AND m.NATIVE_ACCOUNT_CODE = g.HKONT
-  JOIN RAW_DATA.DIM_SUPPLIER s ON s.SUPPLIER_ID = g.LIFNR
-  WHERE g.DOC_TYPE = 'AP_INVOICE'
-  LIMIT 300
-),
-idx AS (
-  SELECT base.*,
-         ARRAY_POSITION(base.SUPPLY_CATEGORY::VARIANT, p.CATS) AS CAT_IDX, p.NARR, p.CORR
-  FROM base, p
-)
-SELECT
-    'DOC' || LPAD(RN::VARCHAR, 6, '0')                                       AS DOC_ID,
-    'SAP'                                                                    AS SOURCE_SYSTEM,
-    BELNR                                                                    AS SOURCE_DOC_REF,
-    LIFNR                                                                    AS SUPPLIER_ID,
-    SUPPLY_CATEGORY                                                          AS BOOKED_SUPPLY_CATEGORY,
-    NARR[IFF(MISCODE_R &lt;= 75, CAT_IDX, MOD(CAT_IDX + SHIFT_R, 11))]::VARCHAR AS INVOICE_NARRATIVE,
-    CASE WHEN ABN_R &lt;= 70 AND SUPPLIER_ABN IS NOT NULL
-         THEN 'Tax invoice. Supplier ABN ' || SUPPLIER_ABN ||
-              '. GST included in the total shown.'
-         ELSE 'Invoice total as shown. Please remit within 30 days.'
-    END                                                                      AS SUPPLIER_REMARKS,
-    CORR[CORR_R]::VARCHAR                                                    AS CORRESPONDENCE_TEXT
-FROM idx;
-
--- ---------------------------------------------------------------------
--- VERIFICATION — object names and row counts.
--- Expected: 1,200,000 / 800,000 / 400,000 / 14 / 180 / 2,000 / 532 /
---           300 / 16 / 19
--- ---------------------------------------------------------------------
-SELECT 'RAW_DATA.ERP_SAP_GL'          AS OBJECT_NAME, COUNT(*) AS ROW_COUNT FROM RAW_DATA.ERP_SAP_GL
-UNION ALL SELECT 'RAW_DATA.ERP_ORACLE_GL',      COUNT(*) FROM RAW_DATA.ERP_ORACLE_GL
-UNION ALL SELECT 'RAW_DATA.ERP_LEGACY_AP',      COUNT(*) FROM RAW_DATA.ERP_LEGACY_AP
-UNION ALL SELECT 'RAW_DATA.DIM_LEGAL_ENTITY',   COUNT(*) FROM RAW_DATA.DIM_LEGAL_ENTITY
-UNION ALL SELECT 'RAW_DATA.DIM_ACCOUNT_MAPPING',COUNT(*) FROM RAW_DATA.DIM_ACCOUNT_MAPPING
-UNION ALL SELECT 'RAW_DATA.DIM_SUPPLIER',       COUNT(*) FROM RAW_DATA.DIM_SUPPLIER
-UNION ALL SELECT 'RAW_DATA.FCT_BAS_LODGED',     COUNT(*) FROM RAW_DATA.FCT_BAS_LODGED
-UNION ALL SELECT 'RAW_DATA.DOC_TAX_INVOICE',    COUNT(*) FROM RAW_DATA.DOC_TAX_INVOICE
-UNION ALL SELECT 'TAX.TAX_RULE_DETERMINATION',  COUNT(*) FROM TAX.TAX_RULE_DETERMINATION
-UNION ALL SELECT 'TAX.TAX_RULE_RATE',           COUNT(*) FROM TAX.TAX_RULE_RATE
-ORDER BY OBJECT_NAME;</code></pre></div>
-
-<div class="info-box success"><span class="icon">&#9889;</span><div><strong>What just happened</strong><p>You provisioned compute, created a database and generated 2,400,000 ledger lines in about a
-minute. No server was sized, no storage was allocated, no index was built and there is nothing
-to maintain. The warehouse suspends itself after 60 seconds of inactivity and stops costing
-anything until the next query wakes it.</p></div></div>
-
-<p>Check the verification output against these expected counts before continuing.</p>
-
-<table class="data-table">
-<thead><tr><th>Object</th><th>Expected rows</th></tr></thead>
-<tbody>
-<tr><td><code>RAW_DATA.ERP_SAP_GL</code></td><td>1,200,000</td></tr>
-<tr><td><code>RAW_DATA.ERP_ORACLE_GL</code></td><td>800,000</td></tr>
-<tr><td><code>RAW_DATA.ERP_LEGACY_AP</code></td><td>400,000</td></tr>
-<tr><td><code>RAW_DATA.DIM_LEGAL_ENTITY</code></td><td>14</td></tr>
-<tr><td><code>RAW_DATA.DIM_ACCOUNT_MAPPING</code></td><td>180</td></tr>
-<tr><td><code>RAW_DATA.DIM_SUPPLIER</code></td><td>2,000</td></tr>
-<tr><td><code>RAW_DATA.FCT_BAS_LODGED</code></td><td>532</td></tr>
-<tr><td><code>RAW_DATA.DOC_TAX_INVOICE</code></td><td>300</td></tr>
-<tr><td><code>TAX.TAX_RULE_DETERMINATION</code></td><td>16</td></tr>
-<tr><td><code>TAX.TAX_RULE_RATE</code></td><td>19</td></tr>
-</tbody>
-</table>
+<div class="beat" data-beat="prove">
+<p><strong>Four rows, every status OK.</strong> 2,400,000 ledger lines are already queryable, and the
+count came back in about a second because Snowflake answers it from table metadata rather than reading
+the rows.</p>
+</div>
 
 <h3>Look at the three shapes side by side</h3>
 
-<p>One query, nine rows, three source systems. Everything is cast to <code>VARCHAR</code> so that
-nothing is silently coerced on the way to your screen &mdash; you see exactly what landed.</p>
+<p>Nine rows, three source systems, everything cast to <code>VARCHAR</code> so nothing is silently
+coerced on the way to your screen. You see exactly what landed.</p>
 
-<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- Three source systems, nine rows, everything cast to VARCHAR so nothing
--- is silently coerced. Read down the DATE_AS_LANDED and AMOUNT columns.
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- Three source systems, nine rows, everything cast to VARCHAR so nothing is
+-- silently coerced. Read down DATE_AS_LANDED, then across the two amount columns.
+-- Each subquery is ordered so the sample is the same rows every time you run it.
 SELECT * FROM (
     SELECT 'SAP'    AS SOURCE_SYSTEM,
            BELNR::VARCHAR              AS DOC_REF,
@@ -1605,7 +1059,7 @@ SELECT * FROM (
            NULL::VARCHAR               AS AMOUNT_2,
            MWSTS::VARCHAR              AS TAX_AS_BOOKED,
            MWSKZ::VARCHAR              AS TAX_CODE
-    FROM RAW_DATA.ERP_SAP_GL LIMIT 3)
+    FROM RAW_DATA.ERP_SAP_GL ORDER BY BELNR LIMIT 3)
 UNION ALL
 SELECT * FROM (
     SELECT 'ORACLE',
@@ -1616,7 +1070,7 @@ SELECT * FROM (
            ENTERED_CR::VARCHAR,
            TAX_AMOUNT::VARCHAR,
            TAX_CLASSIFICATION::VARCHAR
-    FROM RAW_DATA.ERP_ORACLE_GL LIMIT 3)
+    FROM RAW_DATA.ERP_ORACLE_GL ORDER BY JE_HEADER_ID LIMIT 3)
 UNION ALL
 SELECT * FROM (
     SELECT 'LEGACY',
@@ -1627,13 +1081,19 @@ SELECT * FROM (
            NULL::VARCHAR,
            tax_amt::VARCHAR,
            tax_flag::VARCHAR
-    FROM RAW_DATA.ERP_LEGACY_AP LIMIT 3)
+    FROM RAW_DATA.ERP_LEGACY_AP ORDER BY doc_ref LIMIT 3)
 ORDER BY SOURCE_SYSTEM, DOC_REF;</code></pre></div>
 
-<p>Read down two columns. <code>DATE_AS_LANDED</code> returns <code>20250513</code>,
-<code>2023-11-02</code> and <code>17/02/2026</code>. The amount columns are worse: SAP posts a
-single signed figure, Oracle splits debits and credits into two columns and leaves the other
-null, and the legacy system posts one unsigned figure that already includes the GST.</p>
+<div class="beat" data-beat="prove">
+<p><strong>Three systems, three incompatible conventions, one business.</strong>
+<code>DATE_AS_LANDED</code> reads <code>20250528</code> in SAP, <code>2024-05-01</code> in Oracle and
+<code>02/02/2024</code> in the legacy system. Look at the two amount columns: SAP posts one signed
+figure (row 2 is negative), Oracle fills either <code>AMOUNT_1</code> or <code>AMOUNT_2</code> and
+leaves the other empty, and the legacy system posts one unsigned figure that already includes the
+GST.</p>
+<p><em>Snowflake: all three raw shapes queried where they landed. No extract, no staging server, no
+pre-processing step to maintain.</em></p>
+</div>
 
 <h3>The same business concept, three names</h3>
 
@@ -1649,19 +1109,25 @@ null, and the legacy system posts one unsigned figure that already includes the 
 <tr><td>Tax code</td><td><code>MWSKZ</code> &mdash; <code>S1</code>, <code>S0</code>, <code>IT</code>, <code>EX</code>, <code>ZF</code></td><td><code>TAX_CLASSIFICATION</code> &mdash; <code>STANDARD</code>, <code>EXEMPT</code>, <code>ZERO_RATED</code>, <code>OUT_OF_SCOPE</code></td><td><code>tax_flag</code> &mdash; <code>Y</code>, <code>N</code>, <code>X</code></td></tr>
 <tr><td>Supplier</td><td><code>LIFNR</code></td><td><code>VENDOR_ID</code></td><td><code>vendor_ref</code></td></tr>
 <tr><td>Narrative</td><td><code>SGTXT</code></td><td><code>DESCRIPTION</code></td><td><code>narrative</code></td></tr>
-<tr><td>Currency</td><td><code>WAERS</code></td><td><code>CURRENCY_CODE</code></td><td><code>curr_cd</code></td></tr>
 </tbody>
 </table>
 
-<div class="info-box"><span class="icon">&#128161;</span><div><strong>Nothing here has been cleaned</strong><p>That is deliberate. This is what the data actually looks like when it lands from three systems
-that were bought, built and acquired at different times by different people. Every workshop that
-starts from a tidy single table teaches you nothing about the job.</p></div></div>
+<p>Nothing here has been cleaned, and nothing will be until Step 3. The raw layer holds data exactly as
+it landed.</p>
 
-<ul class="learning-list">
-<li>Compute, a database and 2.4 million ledger lines from a single script</li>
-<li>Three date formats, three amount conventions and three tax code vocabularies for one group</li>
-<li>The raw layer holds data exactly as landed &mdash; no conformance, no interpretation</li>
-</ul>
+<div data-surface="guide">
+<h3>Why the raw layer stays untidy</h3>
+<p>The instinct carried over from spreadsheet work is to fix data at the point you find it. Every
+workshop that starts from a single tidy table skips the part of the job that actually consumes the tax
+year, and it also teaches a habit that fails an audit: once the landed data has been edited in place,
+there is no way to separate what the source system sent from what your logic did to it.</p>
+<p>The three tax code vocabularies are worth dwelling on separately. SAP's <code>S0</code> and
+<code>ZF</code>, Oracle's <code>ZERO_RATED</code> and <code>OUT_OF_SCOPE</code>, and the legacy
+system's bare <code>Y</code>/<code>N</code>/<code>X</code> are not translations of one another. The
+legacy flag in particular carries strictly less information than the other two, which is why the
+conformed ledger in Step 3 derives treatment from the account mapping rather than trusting the source
+tax code.</p>
+</div>
     <label class="completion-checkbox"><input type="checkbox" onchange="markStepComplete(1)"> Mark step 1 complete</label>
     </div>
 </div>
@@ -1672,18 +1138,24 @@ starts from a tidy single table teaches you nothing about the job.</p></div></di
         <span class="step-duration">~8 min</span>
     </div>
     <div class="step-content">
-<p>A partner puts a question to you that any client would ask: <strong>what was the group's GST
-payable for the last full quarter, by entity?</strong> It is a completely reasonable question.
-Right now it is unanswerable. The job of this step is to prove that in three queries, not to
-catalogue every flaw in the data.</p>
+<div class="beat" data-beat="business">
+<p><strong>The question the partner actually asks.</strong> <em>What was the group's GST payable for the
+last full quarter, by entity?</em> It is a completely reasonable question, and right now it is
+unanswerable. This step proves that in three queries rather than cataloguing every flaw in the
+data.</p>
+</div>
 
 <h3>The plausible wrong answer</h3>
 
-<p>SAP is the biggest of the three systems and the one the group thinks of as the general ledger.
-Answer the question against SAP alone.</p>
+<p>SAP is the biggest of the three systems and the one the group thinks of as <em>the</em> general
+ledger. Answer the question against SAP alone.</p>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- The partner's question, answered against SAP alone.
 -- GST booked by company code for the last three complete months.
+--
+-- The window is pinned to the dataset's as-of date rather than CURRENT_DATE().
+-- The ledger ends 2026-07-31, so a relative window would silently start losing
+-- months as real time moves on, and every figure quoted below would drift.
 SELECT
     g.BUKRS                    AS SAP_COMPANY_CODE,
     e.ENTITY_NAME,
@@ -1692,16 +1164,16 @@ SELECT
 FROM RAW_DATA.ERP_SAP_GL g
 LEFT JOIN RAW_DATA.DIM_LEGAL_ENTITY e
        ON e.SAP_BUKRS = g.BUKRS
-WHERE TRY_TO_DATE(g.BUDAT, 'YYYYMMDD') &gt;= DATEADD('month', -3, DATE_TRUNC('month', CURRENT_DATE()))
-  AND TRY_TO_DATE(g.BUDAT, 'YYYYMMDD') &lt;  DATE_TRUNC('month', CURRENT_DATE())
+WHERE TRY_TO_DATE(g.BUDAT, 'YYYYMMDD') &gt;= DATEADD('month', -3, '2026-08-01'::DATE)
+  AND TRY_TO_DATE(g.BUDAT, 'YYYYMMDD') &lt;  '2026-08-01'::DATE
 GROUP BY 1, 2
 ORDER BY GST_BOOKED_AUD DESC;</code></pre></div>
 
 <p>That returns in about a second: a clean, confident, formatted number per company code, with
-<strong>96,025 ledger lines scanned</strong> and <strong>$176,904,538</strong> of GST across
+<strong>94,947 ledger lines scanned</strong> and <strong>$174,806,895</strong> of GST across
 <strong>12 rows</strong>.</p>
 
-<div class="info-box success"><span class="icon">&#128200;</span><div><strong>The scale moment</strong><p><code>ERP_SAP_GL</code> holds 1,200,000 rows. Microsoft Excel stops at 1,048,576 &mdash; one of
+<div class="info-box success"><span class="icon">&#128200;</span><div><strong>One of your source systems will not open in Excel</strong><p><code>ERP_SAP_GL</code> holds 1,200,000 rows. Microsoft Excel stops at 1,048,576 &mdash; one of
 your three source systems, on its own, will not open in the tool your team uses today. That
 aggregate scanned the whole table on the smallest warehouse Snowflake sells, with no index, no
 tuning and no preparation of any kind.</p></div></div>
@@ -1711,7 +1183,7 @@ SAP at all &mdash; Marrickville Food Co and Nullarbor Freight are booked in Orac
 legacy system. Nothing in the result grid says so. A number that is confidently wrong and gives
 no indication that it is wrong is the single most dangerous artefact in tax reporting.</p></div></div>
 
-<div class="info-box"><span class="icon">&#128269;</span><div><strong>Free platform moment &mdash; no query needed</strong><p>With those results still on screen, click a column header in the Snowsight results pane. Snowsight
+<div class="info-box"><span class="icon">&#128269;</span><div><strong>Profile a column without writing a query</strong><p>With those results still on screen, click a column header in the Snowsight results pane. Snowsight
 shows the value distribution, the null count and the distinct count for that column immediately.
 If you profile columns by hand in a spreadsheet or a workflow tool today, that is the whole job
 done in one click.</p></div></div>
@@ -1741,9 +1213,9 @@ extracts up by position, and there are four separate reasons why.</p>
 
 <ul class="learning-list">
 <li><strong>Date types.</strong> One column is a real <code>DATE</code>; the other two are text in
-two different conventions. <code>20250513</code> and <code>13/05/2025</code> cannot be compared,
-sorted or filtered against each other until both are parsed, and roughly 2% of the legacy dates
-are not valid dates at all.</li>
+two different conventions. <code>20250528</code> and <code>02/02/2024</code> &mdash; the two you just
+saw in Step 1 &mdash; cannot be compared, sorted or filtered against each other until both are parsed,
+and roughly 2% of the legacy dates are not valid dates at all.</li>
 <li><strong>Amount conventions.</strong> SAP posts one signed GST-exclusive figure. Oracle posts
 unsigned amounts split across a debit column and a credit column, one of which is always null.
 The legacy system posts a single unsigned GST-inclusive figure, so the taxable value has to be
@@ -1815,8 +1287,8 @@ WHERE SAP_BUKRS IS NULL OR ORACLE_LEDGER_ID IS NULL OR LEGACY_ENTITY_CD IS NULL
 
 ORDER BY AFFECTED DESC;</code></pre></div>
 
-<p>Expect results close to these. The exact figures move slightly because the transaction window
-extends to the current date.</p>
+<p>Expect exactly these figures. The data is generated from seeded random values over a fixed date
+window, so the numbers on your screen match the numbers here.</p>
 
 <table class="data-table">
 <thead><tr><th>Issue</th><th>Affected</th><th>Percentage</th><th>Population</th></tr></thead>
@@ -1829,16 +1301,20 @@ extends to the current date.</p>
 </tbody>
 </table>
 
-<p>Read the first row out loud. <strong>77,484 ledger lines carry an account code that nobody has
-mapped.</strong> Those lines have no supply category, so no rule can reach them, so their GST
-treatment is unknown. That is not a data hygiene footnote; it is an unquantified position in a
-lodged return.</p>
+<div class="beat" data-beat="prove">
+<p><strong>77,484 ledger lines carry an account code nobody has mapped.</strong> Those lines have no
+supply category, so no rule can reach them, so their GST treatment is unknown. That is not a data
+hygiene footnote &mdash; it is an unquantified position in a lodged return.</p>
+<p><em>Snowflake: five defect measures over all 2,400,000 lines plus the supplier and entity masters,
+in one query, on the smallest warehouse available. No sampling and no extract.</em></p>
+</div>
 
+<div data-surface="guide">
 <h3>The full defect inventory</h3>
 
-<p>The scorecard covers the defects that block the question outright. These are all of them,
-including the ones that only become visible once the ledger is conformed and the rules are
-applied in the next three steps.</p>
+<p>The scorecard covers the defects that block the question outright. These are all of them, including
+the ones that only become visible once the ledger is conformed and the rules are applied in the next
+three steps.</p>
 
 <table class="data-table">
 <thead><tr><th>#</th><th>Defect</th><th>Volume</th><th>Where it is dealt with</th></tr></thead>
@@ -1853,11 +1329,12 @@ applied in the next three steps.</p>
 <tr><td>8</td><td>Booked GST differs from expected GST by more than $1</td><td>107,808 lines</td><td>Exception E5</td></tr>
 <tr><td>9</td><td>Credits claimed on non-recoverable treatments</td><td>36,718 lines</td><td>Exception E6</td></tr>
 <tr><td>10</td><td>Cross-border services with no reverse charge</td><td>11,754 lines</td><td>Exception E7</td></tr>
-<tr><td>11</td><td>Lodged BAS diverges from the computed position</td><td>18 entity-periods</td><td>Step 5 reconciliation and audit</td></tr>
+<tr><td>11</td><td>Lodged BAS diverges from the computed position</td><td>32 entity-periods</td><td>Step 5 reconciliation and audit</td></tr>
 <tr><td>12</td><td>Entities missing from one or two source systems</td><td>6 of 14</td><td>Step 3 outer-join reasoning</td></tr>
 <tr><td>13</td><td>Booked supply category disagrees with the invoice narrative</td><td>~25% of 300 documents</td><td>Lab 2 Step 2 miscoding detection</td></tr>
 </tbody>
 </table>
+</div>
 
 <div class="info-box"><span class="icon">&#128161;</span><div><strong>The work is not the analysis</strong><p>The partner's question needed one <code>GROUP BY</code>. Everything that stands between you and a
 defensible answer to it is conformance: parsing dates, resolving entities, mapping accounts,
@@ -1883,7 +1360,7 @@ and the data-quality problems labelled rather than hidden.</p>
     <li>Build one Dynamic Table that keeps itself up to date as the source systems change.</li>
 </ul>
 
-<h3>Block 1 — the date problem, and the one-word fix</h3>
+<h3>Where strict parsing falls over</h3>
 
 <p>The legacy AP system stores its document date as text in <code>DD/MM/YYYY</code>. About 2% of
 those 400,000 values cannot be parsed at all: some are <code>'N/A'</code>, some are empty strings,
@@ -1933,8 +1410,8 @@ does not exist. A calendar-aware parser catches it; pattern matching never will.
 tells you where it is not. In a tax pipeline the second behaviour is the only defensible one: a
 line you cannot date is a line whose treatment you cannot determine, and you need it visible in an
 exception report rather than absent from a return. Every <code>TRY_TO_*</code> function in Snowflake
-behaves the same way, and this pattern is the single most immediately useful thing many attendees
-will take home.</p></div></div>
+behaves the same way, and this is the pattern most people take
+straight back to their own work.</p></div></div>
 
 <h3>What has to be conformed, and why</h3>
 
@@ -1982,7 +1459,7 @@ entity carrying all three identifiers — <code>SAP_BUKRS</code>, <code>ORACLE_L
 on a single pair of columns instead of carrying a three-branch <code>OR</code> condition. One group
 entity, three names, resolved in one place.</p>
 
-<h3>Block 2 — build the governed ledger</h3>
+<h3>Build the governed ledger</h3>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>CREATE OR REPLACE DYNAMIC TABLE CURATED.GL_HARMONISED
     TARGET_LAG = '1 hour'
@@ -2091,13 +1568,13 @@ result you wanted; Snowflake works out how to keep it true.</p></div></div>
 <p>Three things worth doing on screen before you move on, none of which needs a query.
 First, open <strong>Monitoring &rarr; Dynamic Tables</strong> in Snowsight: the refresh history and
 the dependency graph are already there, because the pipeline draws its own diagram.
-Second, when you run Block 3 below, open the <strong>Query Profile</strong> tab on the result — a
+Second, when you run the verification query below, open the <strong>Query Profile</strong> tab on the result — a
 visual execution plan with partition pruning statistics, for free, on a query you were running
 anyway.
-Third, run Block 3 a second time: it returns instantly from the result cache and consumes no
+Third, run that verification query a second time: it returns instantly from the result cache and consumes no
 compute at all.</p>
 
-<h3>Block 3 — one query that verifies the whole build</h3>
+<h3>One query that verifies the whole build</h3>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>SELECT COUNT(*)                                                    AS TOTAL_ROWS,
        COUNT(DISTINCT GL_LINE_ID)                                  AS DISTINCT_LINES,
@@ -2127,7 +1604,7 @@ it moves before anyone notices that the GST total has grown. Keep it in the veri
 permanently. That 3.23% unmapped is roughly 77,500 lines whose supply category is unknown; you will
 see them again in Step 4 as the largest single category in the exception register.</p></div></div>
 
-<h3>Block 4 — inspect the object you created</h3>
+<h3>Inspect the object you created</h3>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>SHOW DYNAMIC TABLES IN SCHEMA CURATED;</code></pre></div>
 
@@ -2138,7 +1615,7 @@ so read what it reports rather than assuming a value. <code>TARGET_LAG</code> is
 objective, not a schedule: it is a promise about how stale the data may become, not an instruction
 to run at a fixed time.</p>
 
-<div class="info-box success"><span class="icon">✅</span><div><strong>Where you are</strong><p>One governed ledger, 2,400,000 lines, three source systems, four dimensions resolved and four
+<div class="info-box success"><span class="icon">✅</span><div><strong>One ledger, and no tax logic in it</strong><p>One governed ledger, 2,400,000 lines, three source systems, four dimensions resolved and four
 data-quality conditions labelled. It contains no tax logic whatsoever — and that is what makes the
 next step possible.</p></div></div>
     <label class="completion-checkbox"><input type="checkbox" onchange="markStepComplete(3)"> Mark step 3 complete</label>
@@ -2151,22 +1628,23 @@ next step possible.</p></div></div>
         <span class="step-duration">~15 min</span>
     </div>
     <div class="step-content">
-<p>This is the most important step in the lab, and it carries a single message: <strong>the rules live
-in a table that the tax team owns, not in code that a developer owns.</strong></p>
+<div class="beat" data-beat="business">
+<p><strong>The rules belong to the tax team, not to a developer.</strong> Tax logic is not a
+<code>CASE</code> statement. It is a body of rules with jurisdictions, effective dates and precedence,
+and it changes at short notice, usually decided by someone well outside IT. So hold it as data the tax
+team can read, review and change themselves.</p>
+</div>
 
-<p>Tax logic is not a <code>CASE</code> statement. It is a body of rules with jurisdictions,
-effective dates and precedence, and it changes without warning — usually at short notice, and
-usually not by anyone in IT. So we hold it as data the tax team can read, review and change
-themselves.</p>
+<p>By the end of this step you will:</p>
 
 <ul class="learning-list">
     <li>Read the entire determination logic of the system without reading any SQL.</li>
     <li>Apply effective-dated rules with generic SQL that contains no rates and no treatments.</li>
-    <li>Watch the group GST position change from a single <code>UPDATE</code> to one row of data.</li>
+    <li>Move the group GST position with a single <code>UPDATE</code> to one row of data.</li>
     <li>Stand up a self-maintaining exception register over the result.</li>
 </ul>
 
-<h3>Block 1 — the rules, as data</h3>
+<h3>The rules, as data</h3>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- The decision table. NULL means "matches anything". Lower PRIORITY wins.
 SELECT RULE_ID, PRIORITY, JURISDICTION, SUPPLY_CATEGORY,
@@ -2181,12 +1659,13 @@ SELECT RATE_ID, JURISDICTION, TAX_TREATMENT, RATE_PCT, VALID_FROM, VALID_TO
 FROM TAX.TAX_RULE_RATE
 ORDER BY JURISDICTION, VALID_FROM, TAX_TREATMENT;</code></pre></div>
 
-<p>Stop here and say this out loud, because it is the point of the step: <strong>a tax person can
-read those two result grids and understand the entire determination logic of the system without
-reading a single line of SQL.</strong> Sixteen rules and nineteen rates. No code review, no
-developer to interpret, nothing hidden in a query somebody wrote four years ago and left.</p>
+<div class="beat" data-beat="prove">
+<p><strong>A tax person can read those two grids and understand the whole determination logic without
+reading a line of SQL.</strong> Sixteen rules, nineteen rates. No code review, no developer to
+interpret, nothing buried in a query somebody wrote four years ago and left.</p>
+</div>
 
-<p>Now let the room find <strong>rules 9 and 16</strong>. Same priority, same predicates —
+<p>Find <strong>rules 9 and 16</strong>. Same priority, same predicates —
 <code>PROFESSIONAL_FEES</code>, supplier not GST registered, cross-border — and two adjacent,
 non-overlapping validity windows:</p>
 
@@ -2216,22 +1695,20 @@ from 1 July 2024 — before that date those acquisitions were treated as out of 
 date the reverse charge applies. Unrecognised reverse charge on imported services is one of the most
 common findings in an Australian GST review, so this is not a hypothetical.</p>
 
-<div class="info-box warning"><span class="icon">⚠️</span><div><strong>Ask the room this question before you run anything else</strong><p>What happens to three years of already-lodged BAS if that corrected treatment is
+<div class="info-box warning"><span class="icon">⚠️</span><div><strong>Worth pausing on before you run anything else</strong><p>What happens to three years of already-lodged BAS if that corrected treatment is
 <em>hard-coded</em> instead of effective-dated? You do not merely get next quarter wrong. Your
 computed position for closed periods moves, your reconciliation lights up for periods that were
 correct when they were filed, and you can no longer distinguish a genuine variance from one you
 manufactured yourself.</p></div></div>
 
-<p>One note on the rate table while it is on screen. The Australian GST rate has been 10% since
-1 July 2000 and has never changed — so the demonstrated change in this workshop is a change of
-<em>treatment</em>, not of rate, because that is what actually moves in Australia. The rate table is
-date-effective anyway, so that if the rate ever does move, nobody edits a query. Its non-Australian
-rows exist only as unused extensibility and no example in this workshop touches them.</p>
+<p>Two details on the rate table while it is on screen. The Australian GST rate has been 10% since
+1 July 2000 and has never changed, so what moves in this workshop is a <em>treatment</em>, not a rate
+&mdash; because treatment is what actually moves in Australia. The table is date-effective regardless,
+so if the rate ever does change, nobody edits a query.</p>
 
-<p>Rule 15 deserves one sentence too. It matches everything at priority 99, which guarantees that
-every line resolves to exactly one rule. A decision table without a catch-all silently drops rows,
-and dropped rows in a tax computation are the worst possible failure mode because the total still
-looks reasonable.</p>
+<p>And rule 15 matches everything at priority 99. That catch-all is what guarantees every line resolves
+to exactly one rule. A decision table without one silently drops rows, which is the worst failure mode
+in a tax computation because the total still looks reasonable.</p>
 
 <h3>Why two rule tables and not one</h3>
 
@@ -2248,7 +1725,7 @@ computation. It is also a straightforward injection surface, because anyone who 
 can then execute arbitrary SQL with the pipeline's privileges. Rules here are structured columns
 with declared types, which is why they can be constrained, reviewed and diffed.</p></div></div>
 
-<h3>Block 2 — build the determination view</h3>
+<h3>Build the determination view</h3>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>CREATE OR REPLACE VIEW TAX.V_GST_DETERMINED AS
 WITH matched AS (
@@ -2290,7 +1767,7 @@ is the whole idea: a transaction is judged by the rules that applied <em>when it
 also why rules 9 and 16 can share priority 20 without ambiguity — their windows do not overlap, so
 only one of them can ever match a given line.</p>
 
-<div class="info-box"><span class="icon">💡</span><div><strong>QUALIFY, in one paragraph</strong><p>Most attendees will not have met <code>QUALIFY</code>. It filters on the result of a window
+<div class="info-box"><span class="icon">💡</span><div><strong>QUALIFY, in one paragraph</strong><p>If you have not met <code>QUALIFY</code> before: It filters on the result of a window
 function, in the same way <code>HAVING</code> filters on the result of an aggregate. Here, a single
 ledger line can legitimately match several rules — an entertainment line matches rule 1 and also the
 rule 15 catch-all. <code>ROW_NUMBER() OVER (PARTITION BY g.GL_LINE_ID ORDER BY r.PRIORITY,
@@ -2305,7 +1782,7 @@ catastrophic, because they are precisely the lines somebody needs to chase. As a
 2,400,000 lines survive and <code>TAX_TREATMENT</code> comes back <code>NULL</code> only where
 <code>IS_DATE_PARSED = FALSE</code>. Missing information is represented as missing information.</p>
 
-<h3>Block 3 — prove the effective dating</h3>
+<h3>Prove the effective dating</h3>
 
 <p>One query, one population: Australian imported professional fees from offshore suppliers that are
 not GST registered. Grouped either side of 1 July 2024, from the same view, with no conditional tax
@@ -2347,7 +1824,7 @@ ORDER BY 1;</code></pre></div>
 </table>
 
 <p>An otherwise identical population, split only by document date, produces two different treatments
-and <strong>$25.5 million</strong> of expected GST on one side of the line that does not exist on the
+and <strong>$26.2 million</strong> of expected GST on one side of the line that does not exist on the
 other. Nothing in the query decided that. The rows in the rule table decided it.</p>
 
 <div class="info-box warning"><span class="icon">⚠️</span><div><strong>Now make the consequence explicit</strong><p>Had the corrected treatment been hard-coded — a <code>CASE</code> expression saying imported
@@ -2357,10 +1834,10 @@ be silently restated, and the reconciliation in Step 5 would raise variances aga
 were correct when they were filed. Effective dating is not bookkeeping neatness. It is the only
 thing standing between you and restating three years of lodged BAS by accident.</p></div></div>
 
-<h3>Block 4 — the moment</h3>
+<h3>Change one row and watch the position move</h3>
 
-<p>Someone in the room is about to ask what happens when the tax team wants a change. Answer it by
-doing it. Run all three statements in order.</p>
+<p>So what happens when the tax team wants a change? Do it and see. Run all three statements in
+order.</p>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- 1. The tax team wants to model the reverse charge at a different rate.
 --    They change one row of data. Not a query. Not a deployment.
@@ -2368,7 +1845,7 @@ UPDATE TAX.TAX_RULE_RATE
    SET RATE_PCT = 15.00
  WHERE JURISDICTION = 'AU' AND TAX_TREATMENT = 'REVERSE_CHARGE';
 
--- 2. Exactly the same aggregate as Block 3. Nothing was rebuilt,
+-- 2. Exactly the same aggregate you just ran. Nothing was rebuilt,
 --    nothing was refreshed, nothing was redeployed.
 SELECT APPLIED_RULE_ID,
        TAX_TREATMENT,
@@ -2388,16 +1865,20 @@ UPDATE TAX.TAX_RULE_RATE
    SET RATE_PCT = 10.00
  WHERE JURISDICTION = 'AU' AND TAX_TREATMENT = 'REVERSE_CHARGE';</code></pre></div>
 
-<p><code>APPLIED_RATE_PCT</code> now reads 15.00 and the expected GST on those 4,690 lines has risen
-by half, to roughly $38.3 million. Then statement 3 puts it back and the position returns to
-$26,247,261. The group's computed GST position moved twice in about four seconds.</p>
+<div class="beat" data-beat="prove">
+<p><strong>The group's computed GST position moved twice in about four seconds.</strong>
+<code>APPLIED_RATE_PCT</code> reads 15.00 and expected GST on those 4,690 lines rises by half to
+$39,370,891. Statement 3 puts it back and the position returns to $26,247,261.</p>
+<p><em>Snowflake: the view is generic, so a rule change takes effect on the next query. No rebuild, no
+refresh, no redeployment.</em></p>
+</div>
 
 <div class="info-box success"><span class="icon">🔑</span><div><strong>This is ownership, not architecture</strong><p>No code was edited. Nothing was rebuilt, nothing was redeployed, no release was cut and no
 developer was involved. <strong>The person who owns the rule changed the rule.</strong> That is the
 whole point of holding tax logic as data: the people accountable for the position can move the
 position, and everyone else can see exactly what they changed and when it takes effect.</p></div></div>
 
-<h3>Block 5 — the standing exception register</h3>
+<h3>The standing exception register</h3>
 
 <p>One view that turns the determined ledger into a work queue: every line that fails a tax test,
 with the reasons concatenated and a risk score to sort by.</p>
@@ -2481,7 +1962,7 @@ always sorted worst-first.</p>
 
 <p>A line can fail more than one test, which is why the code counts sum to more than 253,394 and why
 <code>EXCEPTION_COUNT</code> feeds the risk score. Note that <code>E2</code> returns exactly the
-8,088 unparseable dates from Step 3 — the left join in Block 2 is what allowed those lines to reach
+8,088 unparseable dates from Step 3 — the left join in the determination view is what allowed those lines to reach
 this register at all. Lab 2 comes back to this queue and uses Cortex to explain each flagged line in
 plain English.</p>
 
@@ -2587,7 +2068,7 @@ it stood when we lodged.</em></p>
     <li>Undo a <code>DROP TABLE</code> you should not have run.</li>
 </ul>
 
-<h3>Block 1 — build the reconciliation and run it</h3>
+<h3>Build the reconciliation and run it</h3>
 
 <p>The view below is deliberately conservative in three places. It restricts to
 <code>JURISDICTION = 'AU'</code>, because the lodged data is Australian BAS. It excludes the
@@ -2595,6 +2076,12 @@ current, incomplete month, which has no lodged BAS yet and would otherwise appea
 variance every time the workshop is run. And it uses a <code>FULL OUTER JOIN</code>, so a period
 that exists on one side only still appears rather than vanishing — a lodged period with no computed
 lines is exactly as interesting as the reverse.</p>
+
+<p>It also tiers into three bands, not two: variance within $100 is <code>MATCHED</code>, within
+$1,000 is <code>REVIEW</code>, and anything larger is <code>INVESTIGATE</code>. Nothing lands in
+<code>REVIEW</code> with this data, and that is worth noticing — the variances here are either exactly
+nil or run to hundreds of thousands. Real client ledgers are rarely so tidy, which is why the middle
+band is there.</p>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>CREATE OR REPLACE VIEW TAX.V_GST_VS_BAS AS
 WITH computed AS (
@@ -2652,25 +2139,28 @@ ORDER BY TOTAL_ABS_VARIANCE DESC;</code></pre></div>
         <tr><th>Recon status</th><th>Entity-periods</th><th>What it means</th></tr>
     </thead>
     <tbody>
-        <tr><td><code>MATCHED</code></td><td><strong>514</strong></td><td>Variance of exactly <strong>$0.00</strong>. Not "within tolerance" — nil.</td></tr>
-        <tr><td><code>INVESTIGATE</code></td><td><strong>18</strong></td><td>Variance above $1,000. These are the conversation.</td></tr>
+        <tr><td><code>MATCHED</code></td><td><strong>500</strong></td><td>Variance of exactly <strong>$0.00</strong>. Not "within tolerance" — nil.</td></tr>
+        <tr><td><code>INVESTIGATE</code></td><td><strong>32</strong></td><td>Variance above $1,000. These are the conversation.</td></tr>
         <tr><td colspan="2"><strong>532 entity-periods</strong></td><td>Fourteen entities across thirty-eight complete months.</td></tr>
     </tbody>
 </table>
 
-<p>Read the 514 first. Two independently produced numbers — one computed from 2,400,000 ledger lines
-through a rule set the tax team owns, one lodged with the ATO months or years ago — agree to the
-cent for 514 of 532 entity-periods. That is the evidence that the pipeline is right, and it is what
-makes the remaining 18 credible. A reconciliation that flags everything tells you nothing; this one
-flags 3.4% of periods and can defend the other 96.6%.</p>
+<div class="beat" data-beat="prove">
+<p><strong>500 of 532 entity-periods agree to the cent.</strong> Two independently produced numbers —
+one computed from 2,400,000 ledger lines through a rule set the tax team owns, one lodged with the ATO
+months or years ago — and the variance is exactly nil, not "within tolerance". That agreement is the
+evidence the pipeline is right, and it is what makes the remaining 32 worth taking seriously. A
+reconciliation that flags everything tells you nothing; this one flags 6% of periods and defends the
+other 94%.</p>
+</div>
 
-<div class="info-box"><span class="icon">💡</span><div><strong>This is the moment the pipeline pays for itself</strong><p>Every step so far was investment: conforming three ERPs, resolving entities, externalising the
+<div class="info-box"><span class="icon">💡</span><div><strong>What the earlier steps were for</strong><p>Every step so far was investment: conforming three ERPs, resolving entities, externalising the
 rules. This single query is the return. It answers <em>"is our lodged position defensible?"</em>
 across the whole group, at line-level granularity, in seconds — and it will answer it again
-tomorrow without anyone touching it. Ask the room how long that reconciliation takes them today,
+tomorrow without anyone touching it. Compare that against how long the same reconciliation takes today,
 and for how many entities.</p></div></div>
 
-<h3>Block 2 — the adjustment lands</h3>
+<h3>The adjustment lands</h3>
 
 <p>Now the realistic complication. Somebody in the business posts a backdated journal against a
 period that was lodged six months ago. They are not doing anything wrong: late invoices, accruals
@@ -2714,7 +2204,7 @@ fact. The ledger underneath it is not: it keeps moving. Any reconciliation that 
 today's ledger and compares against a return lodged months ago will drift, and the drift is not an
 error — it is the adjustment. What you need is the ability to see both positions.</p></div></div>
 
-<h3>Block 3 — the as-lodged position, in one clause</h3>
+<h3>The as-lodged position, in one clause</h3>
 
 <p>The auditor's question is now live: <em>show me the ledger exactly as it stood when we
 lodged.</em> The answer is not a backup, a restore, a snapshot table somebody remembered to
@@ -2733,7 +2223,7 @@ WHERE ENTITY_ID  = 'ENT001'
 up a copy, you did not go looking for last quarter's extract, and you did not ask anyone's
 permission. You added eighteen characters to a query you already had.</p>
 
-<h3>Block 4 — freeze the evidence, then break it and get it back</h3>
+<h3>Freeze the evidence, break it, get it back</h3>
 
 <p>Time Travel answers the question in the moment. The auditor wants something they can come back
 to next month, so freeze it: a clone of the ledger as it stood before the adjustment, named for the
@@ -2741,7 +2231,7 @@ date it was taken, in a schema that exists for exactly this purpose.</p>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- An immutable, named snapshot of the whole 2,400,000-line ledger
 -- as it stood at the moment before the adjustment was posted.
-CREATE TABLE AUDIT.GL_AS_LODGED_20260803 CLONE CURATED.GL_HARMONISED AT(TIMESTAMP =&gt; $pre_adjustment);
+CREATE OR REPLACE TABLE AUDIT.GL_AS_LODGED_20260803 CLONE CURATED.GL_HARMONISED AT(TIMESTAMP =&gt; $pre_adjustment);
 
 SELECT COUNT(*) AS SNAPSHOT_LINES FROM AUDIT.GL_AS_LODGED_20260803;
 
@@ -2756,10 +2246,9 @@ SELECT COUNT(*) AS STILL_HERE FROM AUDIT.GL_AS_LODGED_20260803;</code></pre></di
 <div class="info-box success"><span class="icon">⚡</span><div><strong>Zero-copy cloning — what just happened, and what it cost</strong><p>You took an immutable snapshot of a <strong>2,400,000-row ledger</strong>. It completed instantly
 and it consumed <strong>no storage</strong>, because a clone copies metadata rather than data — the
 two objects share the same underlying micro-partitions until one of them diverges, and you pay only
-for what subsequently changes. Ask the room what that operation would cost them today: how long to
-extract 2.4 million rows, where it would be written, who would approve the disk, and who would
-remember it exists in eighteen months when the audit actually lands. Then let the silence do the
-work.</p></div></div>
+for what subsequently changes. Worth costing that the way you would have to today: how long to
+extract 2.4 million rows, where they would be written, who approves the disk, and who remembers the
+extract exists in eighteen months when the audit actually lands.</p></div></div>
 
 <p>The wider point is that none of this required a backup strategy, a restore procedure, or a
 conversation with IT. There was no data protection design decision to make in advance, no retention
@@ -2767,7 +2256,7 @@ policy to negotiate, and no recovery runbook to test. Time Travel, cloning and <
 are properties of the platform — they are true of every table in the account, whether or not anybody
 planned for them.</p>
 
-<h3>Block 5 — the visual close, with no new SQL</h3>
+<h3>The visual close, with no new SQL</h3>
 
 <p>Re-run the reconciliation, then read it as a picture rather than a grid. There is no charting
 library to install and no new query to write.</p>
@@ -2798,7 +2287,10 @@ tool, an export or a licence means the distance from question to defensible pict
 clicks — and the optional Streamlit step turns the same two views into a shareable application
 without leaving Snowflake.</p></div></div>
 
-<h3>What you built</h3>
+<h3>What the environment now holds</h3>
+
+<p>The <code>RAW_DATA</code> and <code>TAX</code> rule tables came from setup. Everything from
+<code>CURATED.GL_HARMONISED</code> down you built in this lab.</p>
 
 <table class="data-table">
     <thead>
@@ -2823,7 +2315,7 @@ without leaving Snowflake.</p></div></div>
 </table>
 
 <p>Four objects of your own creation on top of the source data, one of which is a Dynamic Table and
-three of which are views — and a reconciliation that ties to the cent for 514 of 532
+three of which are views — and a reconciliation that ties to the cent for 500 of 532
 entity-periods. There are three optional steps below: a Streamlit control tower over these two
 views, a scenario-modelling exercise on a cloned database, and a secure share of the audit snapshot.
 Lab 2 takes the same objects into Cortex AI — classification, extraction and a Cortex Agent your
@@ -2844,25 +2336,50 @@ because it exists purely to be thrown away.</p></div></div>
         <span class="step-duration">~12 min</span>
     </div>
     <div class="step-content">
-<p><strong>⭐ RECOMMENDED FIRST.</strong> Of the three optional steps this is the one to do if you only
-do one. Everything you have built so far lives in a results grid; this turns it into an application
-your client can open, filter and use — written in Python, running inside Snowflake, with no
-infrastructure, no deployment pipeline and no connection string.</p>
+<div class="beat" data-beat="business">
+<p><strong>⭐ RECOMMENDED FIRST.</strong> Of the three optional steps, do this one if you only do one.
+Everything you have built so far lives in a results grid. A results grid is fine for you and useless
+to the tax manager who has to work a month of exceptions, and worse than useless in front of a
+client. This step turns the same two views into a screen the practice can actually run a review
+from &mdash; written in Python, running inside Snowflake, with no infrastructure and no connection
+string.</p>
+</div>
 
 <ul class="learning-list">
-    <li>Build a three-tab tax control tower over <code>TAX.V_GST_VS_BAS</code> and
+    <li>Build a single-page GST control tower over <code>TAX.V_GST_VS_BAS</code> and
         <code>TAX.V_GST_EXCEPTIONS</code>.</li>
     <li>Use the session that already exists rather than authenticating again.</li>
-    <li>Cache every query so that filtering the page does not re-scan the ledger.</li>
-    <li>Understand why every query in the app aggregates or limits before it returns.</li>
+    <li>Cache every query so filtering the page does not re-scan the ledger.</li>
+    <li>See why every query in the app aggregates or bounds its result before it returns.</li>
 </ul>
+
+<div class="beat" data-beat="decision">
+<h3>Three decisions worth understanding before you paste it</h3>
+
+<p><strong>One file, no project.</strong> The whole dashboard &mdash; layout, theme, queries and
+charts &mdash; is a single <code>.py</code> file. There is no <code>requirements.txt</code>, no
+<code>.streamlit/config.toml</code> and nothing to build. That matters for handing it on: a
+colleague can copy one file into their own account and it runs. The dark theme is injected as CSS
+inside the app for exactly that reason.</p>
+
+<p><strong>Aggregate in Snowflake, render the answer.</strong> The two views sit on 2.4 million
+ledger lines and 253,394 flagged exceptions. Every query in the app either aggregates server side
+and returns tens of rows, or ranks by <code>RISK_SCORE</code> and returns 150. Nobody reads a
+quarter of a million rows, so nothing is gained by shipping them to a browser.</p>
+
+<p><strong>Draw the visuals in HTML, not a plotting library.</strong> The heatmap and the score
+distribution are hand-built with CSS grid and inline SVG. Partly because
+<code>matplotlib</code> is not in the Streamlit in Snowflake warehouse runtime &mdash; anything
+depending on it, including pandas' <code>Styler.background_gradient</code>, fails at render time
+rather than at import. Partly because it keeps the app to one file with no packages to declare.</p>
+</div>
 
 <h3>Create the app in Snowsight</h3>
 
 <ol>
     <li>In the left navigation choose <strong>Projects</strong>, then <strong>Streamlit</strong>.</li>
     <li>Click <strong>+ Streamlit App</strong>.</li>
-    <li>Name it <code>GST Tax Control Tower</code>.</li>
+    <li>Name it <code>GST Control Tower</code>.</li>
     <li>Set <strong>App location</strong> to database <code>GSI_TAX_WORKSHOP</code> and schema
         <code>APPS</code>.</li>
     <li>Set <strong>App warehouse</strong> to <code>GSI_TAX_WH</code>.</li>
@@ -2870,271 +2387,633 @@ infrastructure, no deployment pipeline and no connection string.</p>
         and click <strong>Run</strong>.</li>
 </ol>
 
-<p>The app runs unmodified. There is nothing to edit, nothing to configure and no packages to add —
-Streamlit and the Snowpark library are already present in the environment.</p>
+<p>The app runs unmodified. Nothing to edit, nothing to configure, no packages to add &mdash;
+Streamlit and the Snowpark library are already in the environment.</p>
 
-<h3>Block 1 — the application</h3>
+<h3>The control tower app</h3>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">python</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>import streamlit as st
+import bisect
+import html
+
 import pandas as pd
+from datetime import datetime, timezone
 from snowflake.snowpark.context import get_active_session
 
-st.set_page_config(page_title="GST Tax Control Tower", layout="wide")
+st.set_page_config(page_title="GST Control Tower", layout="wide")
 
-# The session already exists. Never build a connection inside
-# Streamlit in Snowflake.
 session = get_active_session()
 
+# =====================================================================
+# THEME
+#
+# One dark theme, defined once, applied with injected CSS so the whole
+# app stays a SINGLE file - no .streamlit/config.toml to copy alongside it.
+#
+# Because the background is forced dark, every foreground colour is set
+# explicitly too. Streamlit's own widgets default to the light theme's dark
+# text, which would be invisible here, so widget labels, inputs and dropdowns
+# are all given an explicit light colour below.
+# =====================================================================
+BG      = "#0B1220"   # page
+PANEL   = "#111C2E"   # cards
+EDGE    = "#1E2D45"   # borders
+INK     = "#E6EDF6"   # primary text
+MUTED   = "#8A9BB0"   # secondary text
+BLUE    = "#29B5E8"   # Snowflake accent
+RED     = "#F76B7C"   # investigate / high
+AMBER   = "#E8B23A"   # review / medium
+GREEN   = "#4ED8A0"   # matched / clean
 
-# ---------------------------------------------------------------------
-# Every query below is aggregated or LIMITed server side. The ledger is
-# 2,400,000 lines and the exception register is 253,394 - returning either
-# of them row level would time the app out and achieve nothing, because
-# nobody reads 253,394 rows. Aggregate in Snowflake, render the summary.
-# ---------------------------------------------------------------------
+CSS = """
+&lt;style&gt;
+:root {
+  --bg:#0B1220; --panel:#111C2E; --edge:#1E2D45;
+  --ink:#E6EDF6; --muted:#8A9BB0;
+  --blue:#29B5E8; --red:#F76B7C; --amber:#E8B23A; --green:#4ED8A0;
+}
+/* page + base text -------------------------------------------------- */
+.stApp, [data-testid="stAppViewContainer"] { background: var(--bg); }
+[data-testid="stHeader"] { background: transparent; }
+.block-container { padding: 1.1rem 1.4rem 3rem; max-width: 1500px; }
+.stApp, .stApp p, .stApp span, .stApp div, .stApp label {
+  color: var(--ink);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+/* every Streamlit widget label, explicitly light ---------------------- */
+[data-testid="stWidgetLabel"], [data-testid="stWidgetLabel"] p,
+.stSlider label, .stSelectbox label, .stTextInput label, .stMultiSelect label {
+  color: var(--muted) !important;
+  font-size: .68rem !important; font-weight: 700 !important;
+  letter-spacing: .09em !important; text-transform: uppercase !important;
+}
+/* Inputs: dark field, light text.
+   Streamlit changed its widget internals: older builds (which is what the
+   Snowflake warehouse runtime ships) render selects with BaseWeb and expose
+   data-baseweb="select"; newer builds use react-aria and expose neither. We
+   target both, plus the stable data-testid wrappers, so the dashboard stays
+   dark whichever build it lands on. The wrapper is what carries the default
+   light fill, so styling only the &lt;input&gt; leaves a white box around it. */
+.stTextInput input, .stNumberInput input,
+[data-testid="stTextInputRootElement"],
+[data-testid="stTextInputRootElement"] &gt; div {
+  background: #0D1728 !important;
+  color: var(--ink) !important;
+  -webkit-text-fill-color: var(--ink) !important;
+  border-color: var(--edge) !important;
+  border-radius: 8px !important;
+}
+.stTextInput input::placeholder { color: #5E7189 !important; opacity: 1 !important; }
+/* select shell: BaseWeb (older) and react-aria (newer) */
+[data-baseweb="select"] &gt; div,
+[data-testid="stSelectbox"] [role="group"],
+[data-testid="stMultiSelect"] [role="group"],
+.react-aria-ComboBox [role="group"] {
+  background: #0D1728 !important; border-color: var(--edge) !important;
+  color: var(--ink) !important; border-radius: 8px !important;
+}
+[data-baseweb="select"] div, [data-baseweb="select"] span,
+[data-testid="stSelectbox"] input, [data-testid="stMultiSelect"] input,
+[data-testid="stSelectbox"] [role="combobox"] {
+  color: var(--ink) !important; -webkit-text-fill-color: var(--ink) !important;
+  background: transparent !important;
+}
+/* dropdown panel */
+[data-baseweb="popover"], [data-baseweb="menu"], [role="listbox"],
+.react-aria-Popover, .react-aria-ListBox {
+  background: #0D1728 !important; border: 1px solid var(--edge) !important;
+}
+[role="option"], .react-aria-ListBoxItem {
+  background: #0D1728 !important; color: var(--ink) !important;
+}
+[role="option"]:hover, .react-aria-ListBoxItem[data-focused] { background: #16243A !important; }
+[data-baseweb="tag"] { background: #16243A !important; color: var(--ink) !important; }
+/* slider ------------------------------------------------------------- */
+.stSlider [data-baseweb="slider"] div[role="slider"],
+.stSlider [role="slider"] { background: var(--blue) !important; }
+.stSlider [data-testid="stTickBar"], .stSlider [data-testid="stTickBarMin"],
+.stSlider [data-testid="stTickBarMax"] { color: var(--muted) !important; background: transparent !important; }
+/* kill Streamlit chrome we are replacing ----------------------------- */
+[data-testid="stToolbar"], footer, #MainMenu { visibility: hidden; }
+hr { border-color: var(--edge); }
+
+/* ---------------- our own components ------------------------------- */
+.topbar {
+  display:flex; align-items:center; gap:14px;
+  background:linear-gradient(135deg,#12243C 0%,#0E1A2C 55%,#141B33 100%);
+  border:1px solid var(--edge); border-radius:14px; padding:14px 18px; margin-bottom:14px;
+}
+.logo {
+  width:38px;height:38px;border-radius:10px;flex:0 0 38px;
+  background:linear-gradient(135deg,var(--blue),#1273A8);
+  display:flex;align-items:center;justify-content:center;font-size:19px;
+}
+.t-title { font-size:1.28rem; font-weight:800; letter-spacing:-.02em; line-height:1.15; }
+.t-meta  { font-size:.76rem; color:var(--muted); margin-top:3px; }
+.dot { height:7px;width:7px;border-radius:50%;display:inline-block;margin-right:5px;
+       background:var(--green); box-shadow:0 0 0 3px rgba(78,216,160,.16); }
+
+.kpis { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:14px; }
+.kpi { background:var(--panel); border:1px solid var(--edge); border-radius:14px;
+       padding:15px 17px 13px; position:relative; overflow:hidden; }
+.kpi-l { font-size:.65rem; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); }
+.kpi-v { font-size:2.15rem; font-weight:800; letter-spacing:-.03em; line-height:1.12; margin:5px 0 2px; }
+.kpi-s { font-size:.74rem; color:var(--muted); min-height:2.5em; }
+.kpi-track { position:absolute; left:17px; right:17px; bottom:9px; height:3px;
+             background:#1B2942; border-radius:3px; overflow:hidden; }
+.kpi-fill { height:100%; border-radius:3px; animation:grow 1.05s cubic-bezier(.22,1,.36,1) both; }
+@keyframes grow { from { width:0 } }
+
+.card { background:var(--panel); border:1px solid var(--edge); border-radius:14px;
+        padding:15px 17px 17px; height:100%; }
+.card-h { display:flex; justify-content:space-between; align-items:baseline; gap:14px; margin-bottom:14px; }
+.card-t { font-size:.95rem; font-weight:700; white-space:nowrap; }
+.card-n { font-size:.71rem; color:var(--muted); text-align:right; }
+
+.brow { margin-bottom:13px; }
+.brow-top { display:flex; justify-content:space-between; align-items:baseline; font-size:.82rem; }
+.brow-track { height:8px; background:#1B2942; border-radius:5px; margin-top:6px; overflow:hidden; }
+.brow-fill { height:100%; border-radius:5px; animation:grow 1.15s cubic-bezier(.22,1,.36,1) both; }
+
+table.tt { width:100%; border-collapse:collapse; font-size:.79rem; }
+table.tt th { text-align:left; font-size:.63rem; letter-spacing:.09em; text-transform:uppercase;
+              color:var(--muted); font-weight:700; padding:0 9px 8px; border-bottom:1px solid var(--edge); }
+table.tt td { padding:8px 9px; border-bottom:1px solid #16223A; color:var(--ink); }
+table.tt tr:hover td { background:#16243A; }
+.num { font-variant-numeric:tabular-nums; text-align:right;
+       font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+.pill { display:inline-block; padding:2px 9px; border-radius:999px;
+        font-size:.66rem; font-weight:700; letter-spacing:.03em; }
+
+.hm { display:grid; gap:2px; }
+.hm-c { height:19px; border-radius:3px; }
+.hm-c:hover { outline:1.5px solid var(--ink); z-index:6; }
+
+/* Instant hover tooltip, shared by the heatmap cells and the histogram buckets.
+   The browser's native title attribute waits about a second and renders in OS
+   chrome, so in a room people conclude hover is broken before it ever appears. */
+[data-tip] { position:relative; }
+[data-tip]:hover::after {
+  content:attr(data-tip); position:absolute; bottom:calc(100% + 7px); left:50%;
+  transform:translateX(-50%); background:#050A14; color:var(--ink);
+  border:1px solid var(--edge); padding:6px 10px; border-radius:6px;
+  font-size:.7rem; white-space:nowrap; z-index:30; pointer-events:none;
+  box-shadow:0 8px 22px rgba(0,0,0,.6);
+}
+/* Clamp the first and last columns. A centred tooltip on the final period runs
+   past the viewport, and Streamlit's app container is overflow:hidden, so it
+   would be cut in half rather than just overhanging. */
+[data-tip].tip-r:hover::after { left:0; transform:none; }
+[data-tip].tip-l:hover::after { left:auto; right:0; transform:none; }
+
+/* Transparent hit targets laid over the histogram, one per bucket, so the bars
+   get the same instant tooltip as the heatmap without rewriting the SVG. */
+.hx { position:relative; }
+.hx-c { position:absolute; top:0; border-radius:4px; }
+.hx-c:hover { background:rgba(230,237,246,.06); }
+.hm-lbl { font-size:.7rem; color:var(--muted); padding-right:9px; text-align:right;
+          white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+&lt;/style&gt;
+"""
+st.markdown(CSS, unsafe_allow_html=True)
+
+
+# =====================================================================
+# DATA
+# Every query aggregates or bounds its result. Nothing returns a row per
+# ledger line: the register is 253,394 rows and the browser does not want them.
+# =====================================================================
+@st.cache_data(ttl=600)
+def recon_summary():
+    return session.sql("""
+        SELECT RECON_STATUS, COUNT(*) AS N, ROUND(SUM(ABS(VARIANCE_NET)),2) AS ABS_VAR
+        FROM TAX.V_GST_VS_BAS GROUP BY 1
+    """).to_pandas()
+
 
 @st.cache_data(ttl=600)
-def load_headline():
+def ledger_scale():
+    """Header and KPI figures, read live rather than hardcoded.
+
+    Lab 1 posts a correcting entry, which moves the ledger count off the round
+    2,400,000 and shifts one entity-period out of MATCHED. A hardcoded number
+    would quietly start lying the moment a participant runs that step.
+    """
     return session.sql("""
-        SELECT COUNT(*)                                            AS ENTITY_PERIODS,
-               SUM(IFF(RECON_STATUS = 'MATCHED', 1, 0))            AS MATCHED,
-               SUM(IFF(RECON_STATUS = 'INVESTIGATE', 1, 0))        AS INVESTIGATE,
-               ROUND(SUM(ABS(VARIANCE_NET)), 2)                    AS TOTAL_ABS_VARIANCE
+        SELECT (SELECT COUNT(*) FROM CURATED.GL_HARMONISED) AS LINES,
+               COUNT(DISTINCT ENTITY_ID)                    AS ENTITIES,
+               COUNT(DISTINCT TAX_PERIOD)                   AS PERIODS
         FROM TAX.V_GST_VS_BAS
-    """).to_pandas()
+    """).to_pandas().iloc[0]
 
 
 @st.cache_data(ttl=600)
-def load_exception_headline():
+def exception_summary():
     return session.sql("""
-        SELECT COUNT(*)                                    AS FLAGGED_LINES,
-               SUM(IFF(MAX_SEVERITY = 'HIGH', 1, 0))       AS HIGH_SEVERITY,
-               ROUND(AVG(RISK_SCORE), 2)                   AS AVG_RISK_SCORE
+        SELECT COUNT(*) AS FLAGGED, SUM(IFF(MAX_SEVERITY='HIGH',1,0)) AS HIGH,
+               ROUND(AVG(RISK_SCORE),2) AS AVG_RISK
         FROM TAX.V_GST_EXCEPTIONS
-    """).to_pandas()
+    """).to_pandas().iloc[0]
 
 
 @st.cache_data(ttl=600)
-def load_recon(status_filter):
-    where = ""
-    if status_filter != "All":
-        where = f"WHERE RECON_STATUS = '{status_filter}'"
-    return session.sql(f"""
-        SELECT ENTITY_NAME, TAX_PERIOD, COMPUTED_NET_GST, LODGED_NET_GST,
-               VARIANCE_NET, VARIANCE_PCT, RECON_STATUS
-        FROM TAX.V_GST_VS_BAS
-        {where}
-        ORDER BY ABS(VARIANCE_NET) DESC
-        LIMIT 500
-    """).to_pandas()
-
-
-@st.cache_data(ttl=600)
-def load_variance_by_entity():
+def score_histogram():
     return session.sql("""
-        SELECT ENTITY_NAME,
-               ROUND(SUM(ABS(VARIANCE_NET)), 2) AS TOTAL_ABS_VARIANCE
-        FROM TAX.V_GST_VS_BAS
-        GROUP BY ENTITY_NAME
-        ORDER BY TOTAL_ABS_VARIANCE DESC
+        SELECT FLOOR(RISK_SCORE/10)*10 AS BUCKET, MAX_SEVERITY, COUNT(*) AS N
+        FROM TAX.V_GST_EXCEPTIONS GROUP BY 1,2 ORDER BY 1
     """).to_pandas()
 
 
 @st.cache_data(ttl=600)
-def load_filter_values():
-    entities = session.sql("""
-        SELECT DISTINCT ENTITY_NAME FROM TAX.V_GST_EXCEPTIONS ORDER BY 1
-    """).to_pandas()["ENTITY_NAME"].tolist()
-    codes = session.sql("""
-        SELECT DISTINCT VALUE::VARCHAR AS EXCEPTION_CODE
-        FROM TAX.V_GST_EXCEPTIONS,
-             LATERAL FLATTEN(input =&gt; SPLIT(EXCEPTION_CODES, ', '))
-        ORDER BY 1
-    """).to_pandas()["EXCEPTION_CODE"].tolist()
-    return entities, codes
+def entities():
+    return session.sql(
+        "SELECT DISTINCT ENTITY_NAME FROM TAX.V_GST_EXCEPTIONS ORDER BY 1"
+    ).to_pandas()["ENTITY_NAME"].tolist()
 
 
 @st.cache_data(ttl=600)
-def load_exceptions(severity, entity, code, row_limit):
-    clauses = []
-    if severity != "All":
-        clauses.append(f"MAX_SEVERITY = '{severity}'")
-    if entity != "All":
-        clauses.append(f"ENTITY_NAME = '{entity}'")
-    if code != "All":
-        clauses.append(f"EXCEPTION_CODES LIKE '%{code}%'")
-    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
-    return session.sql(f"""
-        SELECT GL_LINE_ID, ENTITY_NAME, TAX_PERIOD, SOURCE_SYSTEM,
-               SUPPLIER_NAME, SUPPLY_CATEGORY, TAX_TREATMENT, APPLIED_RULE_ID,
-               NET_AMOUNT, BOOKED_TAX_AMOUNT, EXPECTED_TAX_AMOUNT, TAX_VARIANCE,
-               EXCEPTION_CODES, MAX_SEVERITY, RISK_SCORE
-        FROM TAX.V_GST_EXCEPTIONS
-        {where}
-        ORDER BY RISK_SCORE DESC
-        LIMIT {row_limit}
-    """).to_pandas()
+def severities():
+    """Severity levels that actually occur, ordered high to low.
+
+    Hardcoding HIGH/MEDIUM/LOW offered a LOW filter that returns an empty table,
+    because the rule set only ever lands on MEDIUM or HIGH. A dead filter option
+    reads as a broken app. Reading the levels from the data means the control
+    always matches reality, and a LOW option appears by itself if the rules ever
+    start producing one.
+    """
+    have = session.sql(
+        "SELECT DISTINCT MAX_SEVERITY FROM TAX.V_GST_EXCEPTIONS"
+    ).to_pandas()["MAX_SEVERITY"].tolist()
+    return [s for s in ("HIGH", "MEDIUM", "LOW") if s in have]
 
 
 @st.cache_data(ttl=600)
-def load_exception_summary(severity, entity, code):
-    clauses = []
-    if severity != "All":
-        clauses.append(f"MAX_SEVERITY = '{severity}'")
-    if entity != "All":
-        clauses.append(f"ENTITY_NAME = '{entity}'")
-    if code != "All":
-        clauses.append(f"EXCEPTION_CODES LIKE '%{code}%'")
-    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
-    return session.sql(f"""
-        SELECT COUNT(*)                                  AS FLAGGED_LINES,
-               ROUND(SUM(ABS(COALESCE(TAX_VARIANCE,0))),2) AS ABS_TAX_VARIANCE
-        FROM TAX.V_GST_EXCEPTIONS
-        {where}
-    """).to_pandas()
-
-
-@st.cache_data(ttl=600)
-def load_heatmap():
+def heatmap():
     return session.sql("""
-        SELECT ENTITY_NAME,
-               TO_VARCHAR(TAX_PERIOD, 'YYYY-MM') AS TAX_PERIOD,
-               COUNT(*)                          AS EXCEPTION_LINES
-        FROM TAX.V_GST_EXCEPTIONS
-        WHERE TAX_PERIOD IS NOT NULL
-        GROUP BY 1, 2
-        ORDER BY 1, 2
+        SELECT ENTITY_NAME, TO_VARCHAR(TAX_PERIOD,'YYYY-MM') AS P, COUNT(*) AS N
+        FROM TAX.V_GST_EXCEPTIONS WHERE TAX_PERIOD IS NOT NULL
+        GROUP BY 1,2 ORDER BY 1,2
     """).to_pandas()
 
 
-# ---------------------------------------------------------------------
-# Headline tiles
-# ---------------------------------------------------------------------
-st.title("GST Tax Control Tower")
-st.caption("Computed GST position, lodged BAS reconciliation and risk-ranked exception register.")
-
-h = load_headline().iloc[0]
-e = load_exception_headline().iloc[0]
-
-c1, c2, c3, c4, c5 = st.columns(5)
-c1.metric("Entity-periods", f"{int(h['ENTITY_PERIODS']):,}")
-c2.metric("Matched", f"{int(h['MATCHED']):,}")
-c3.metric("Investigate", f"{int(h['INVESTIGATE']):,}")
-c4.metric("Flagged lines", f"{int(e['FLAGGED_LINES']):,}")
-c5.metric("High severity", f"{int(e['HIGH_SEVERITY']):,}")
-
-st.divider()
-
-tab_recon, tab_exceptions, tab_heatmap = st.tabs(
-    ["BAS reconciliation", "Exception register", "Entity heatmap"]
-)
+@st.cache_data(ttl=600)
+def worklist(min_score, sev, entity, search, limit):
+    where = [f"RISK_SCORE &gt;= {int(min_score)}"]
+    if sev != "All":
+        where.append(f"MAX_SEVERITY = '{sev}'")
+    if entity != "All entities":
+        where.append(f"ENTITY_NAME = '{entity}'")
+    if search:
+        safe = search.replace("'", "''").upper()
+        where.append(f"(UPPER(SUPPLIER_NAME) LIKE '%{safe}%' OR UPPER(GL_LINE_ID) LIKE '%{safe}%')")
+    clause = "WHERE " + " AND ".join(where)
+    return session.sql(f"""
+        SELECT GL_LINE_ID, ENTITY_NAME, SUPPLIER_NAME, SUPPLY_CATEGORY,
+               TAX_TREATMENT, APPLIED_RULE_ID, TAX_VARIANCE, EXCEPTION_CODES,
+               MAX_SEVERITY, RISK_SCORE
+        FROM TAX.V_GST_EXCEPTIONS {clause}
+        ORDER BY RISK_SCORE DESC, ABS(TAX_VARIANCE) DESC
+        LIMIT {int(limit)}
+    """).to_pandas(), clause
 
 
-# ---------------------------------------------------------------------
-# Tab 1 - BAS reconciliation
-# ---------------------------------------------------------------------
-with tab_recon:
-    st.subheader("Computed GST against lodged BAS")
-
-    status = st.selectbox(
-        "Recon status",
-        ["All", "MATCHED", "REVIEW", "INVESTIGATE"],
-        key="recon_status",
-    )
-
-    st.markdown("**Total absolute variance by entity**")
-    st.bar_chart(
-        load_variance_by_entity().set_index("ENTITY_NAME"),
-        y="TOTAL_ABS_VARIANCE",
-        height=320,
-    )
-
-    recon = load_recon(status)
-    st.markdown(f"**Entity-periods, worst variance first** ({len(recon):,} shown)")
-    st.dataframe(
-        recon.style.format({
-            "COMPUTED_NET_GST": "{:,.2f}",
-            "LODGED_NET_GST": "{:,.2f}",
-            "VARIANCE_NET": "{:,.2f}",
-            "VARIANCE_PCT": "{:,.2f}",
-        }),
-        use_container_width=True,
-        height=420,
-    )
+@st.cache_data(ttl=600)
+def filtered_totals(clause):
+    return session.sql(f"""
+        SELECT COUNT(*) AS N, ROUND(SUM(ABS(COALESCE(TAX_VARIANCE,0))),2) AS ABS_VAR
+        FROM TAX.V_GST_EXCEPTIONS {clause}
+    """).to_pandas().iloc[0]
 
 
-# ---------------------------------------------------------------------
-# Tab 2 - Exception register
-# ---------------------------------------------------------------------
-with tab_exceptions:
-    st.subheader("Risk-ranked exception register")
+def txt(v):
+    """NULL-safe cell text for the hand-rolled table.
 
-    entities, codes = load_filter_values()
-
-    f1, f2, f3, f4 = st.columns(4)
-    severity = f1.selectbox("Severity", ["All", "HIGH", "MEDIUM", "LOW"], key="ex_sev")
-    entity = f2.selectbox("Entity", ["All"] + entities, key="ex_ent")
-    code = f3.selectbox("Exception code", ["All"] + codes, key="ex_code")
-    row_limit = f4.selectbox("Rows to return", [100, 250, 500, 1000], key="ex_rows")
-
-    summary = load_exception_summary(severity, entity, code).iloc[0]
-    s1, s2 = st.columns(2)
-    s1.metric("Flagged lines matching filters", f"{int(summary['FLAGGED_LINES']):,}")
-    s2.metric("Absolute tax variance", f"{float(summary['ABS_TAX_VARIANCE'] or 0):,.2f}")
-
-    st.caption(
-        "The register holds 253,394 flagged lines. It is always read "
-        "ORDER BY RISK_SCORE DESC with a row limit - the ranking is the point, "
-        "not the volume."
-    )
-
-    st.dataframe(
-        load_exceptions(severity, entity, code, row_limit),
-        use_container_width=True,
-        height=460,
-    )
+    Snowflake NULLs arrive as float nan through to_pandas(), and dropping one
+    straight into an f-string renders the literal string 'nan'. Unmapped GL
+    accounts genuinely have no supply category, so this is the common case
+    rather than an edge one. Values are escaped because they land in raw HTML.
+    """
+    if v is None or pd.isna(v):
+        return "&lt;span style='opacity:.5'&gt;&amp;mdash;&lt;/span&gt;"
+    return html.escape(str(v))
 
 
-# ---------------------------------------------------------------------
-# Tab 3 - Entity heatmap
-# ---------------------------------------------------------------------
-with tab_heatmap:
-    st.subheader("Exception count by entity and tax period")
+def money(v):
+    v = float(v or 0)
+    for cut, suf in ((1e9, "B"), (1e6, "M"), (1e3, "K")):
+        if abs(v) &gt;= cut:
+            return f"${v / cut:,.1f}{suf}"
+    return f"${v:,.0f}"
 
-    hm = load_heatmap()
-    pivot = hm.pivot(index="ENTITY_NAME", columns="TAX_PERIOD", values="EXCEPTION_LINES")
-    pivot = pivot.fillna(0).astype(int)
 
-    st.dataframe(
-        pivot.style.background_gradient(axis=None, cmap="Reds"),
-        use_container_width=True,
-        height=520,
-    )
+# =====================================================================
+# HEADER
+# =====================================================================
+rs = recon_summary()
+sc = ledger_scale()
+ex = exception_summary()
+total_periods = int(rs["N"].sum())
+investigate = int(rs.loc[rs.RECON_STATUS == "INVESTIGATE", "N"].sum())
+abs_var = float(rs["ABS_VAR"].sum())
+flagged = int(ex["FLAGGED"])
+stamp = datetime.now(timezone.utc).strftime("%d %b %Y %H:%M UTC")
 
-    st.caption(
-        "Dark cells are entity-periods carrying the most flagged lines. "
-        "Read down a column for a bad month across the group, and across "
-        "a row for an entity with a persistent problem."
-    )</code></pre></div>
+st.markdown(f"""
+&lt;div class="topbar"&gt;
+  &lt;div class="logo"&gt;&amp;#128202;&lt;/div&gt;
+  &lt;div style="flex:1"&gt;
+    &lt;div class="t-title"&gt;GST Control Tower&lt;/div&gt;
+    &lt;div class="t-meta"&gt;&lt;span class="dot"&gt;&lt;/span&gt;Live &amp;nbsp;&amp;middot;&amp;nbsp;
+      GSI_TAX_WORKSHOP.TAX &amp;nbsp;&amp;middot;&amp;nbsp; {int(sc['LINES']):,} ledger lines
+      &amp;nbsp;&amp;middot;&amp;nbsp; Streamlit on Snowflake &amp;nbsp;&amp;middot;&amp;nbsp; {stamp}&lt;/div&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+""", unsafe_allow_html=True)
 
-<div class="info-box"><span class="icon">🔑</span><div><strong>Why every query aggregates or limits</strong><p>The two views behind this app sit on 2,400,000 ledger lines and 253,394 flagged exceptions. Pull
-either of those into the browser row-level and the app stalls — and the user learns nothing, because
-nobody reads a quarter of a million rows. Every function above either aggregates in Snowflake and
-returns tens of rows, or ranks by <code>RISK_SCORE</code> and returns hundreds. The compute stays
-where the data is; only the answer travels.</p></div></div>
 
-<div class="info-box success"><span class="icon">⚡</span><div><strong>What you did not have to do</strong><p>There is no connection string, no credential, no driver, no <code>pip install</code>, no
-container, no web server and no deployment. <code>get_active_session()</code> returns the session
-you are already authenticated in, so the app inherits your role and therefore your data access —
-row access policies and masking policies continue to apply. <code>@st.cache_data(ttl=600)</code> on
-every query function means clicking through filters re-renders from cache rather than re-querying,
-so the warehouse can suspend while people are reading.</p></div></div>
+def kpi(label, value, sub, colour, pct):
+    return (f'&lt;div class="kpi"&gt;&lt;div class="kpi-l"&gt;{label}&lt;/div&gt;'
+            f'&lt;div class="kpi-v" style="color:{colour}"&gt;{value}&lt;/div&gt;'
+            f'&lt;div class="kpi-s"&gt;{sub}&lt;/div&gt;'
+            f'&lt;div class="kpi-track"&gt;&lt;div class="kpi-fill" '
+            f'style="width:{pct:.1f}%;background:{colour}"&gt;&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;')
 
-<h3>Block 2 — only if the app cannot see the objects</h3>
 
-<p>If the app loads but every tab reports that an object does not exist, the role running the app is
-not the role that built the objects. Run the grants below as
-<code>ACCOUNTADMIN</code>, substituting the role your app runs under, then reload the app.</p>
+st.markdown(
+    '&lt;div class="kpis"&gt;'
+    + kpi("Entity-periods reconciled", f"{total_periods:,}",
+          f"{int(sc['ENTITIES'])} entities across {int(sc['PERIODS'])} complete months",
+          BLUE, 100)
+    + kpi("Investigate", f"{investigate:,}",
+          "variance above the $1,000 threshold", RED,
+          100 * investigate / max(total_periods, 1))
+    + kpi("Flagged ledger lines", f"{flagged:,}",
+          f"avg risk score {float(ex['AVG_RISK']):.1f}", AMBER,
+          100 * flagged / max(int(sc["LINES"]), 1))
+    + kpi("Absolute variance", money(abs_var),
+          "computed against lodged BAS", GREEN, 100)
+    + "&lt;/div&gt;", unsafe_allow_html=True)
+
+
+# =====================================================================
+# FILTERS - native widgets, explicitly styled above so the text is legible
+# =====================================================================
+f1, f2, f3, f4 = st.columns([1, 1.4, 1.6, 1.1])
+sev = f1.selectbox("Severity", ["All"] + severities())
+entity = f2.selectbox("Entity", ["All entities"] + entities())
+min_score = f3.slider("Minimum risk score", 0, 100, 0, 5)
+search = f4.text_input("Search supplier or line", placeholder="e.g. Ridgeline")
+
+rows, clause = worklist(min_score, sev, entity, search, 150)
+tot = filtered_totals(clause)
+
+# =====================================================================
+# PANELS
+# =====================================================================
+left, right = st.columns([1, 1.25])
+
+SEV_COLOUR = {"MATCHED": GREEN, "REVIEW": AMBER, "INVESTIGATE": RED}
+
+with left:
+    bars = ""
+    top = int(rs["N"].max())
+    for status in ("MATCHED", "REVIEW", "INVESTIGATE"):
+        n = int(rs.loc[rs.RECON_STATUS == status, "N"].sum())
+        c = SEV_COLOUR[status]
+        bars += (
+            f'&lt;div class="brow"&gt;&lt;div class="brow-top"&gt;'
+            f'&lt;span&gt;&lt;span class="dot" style="background:{c};box-shadow:none"&gt;&lt;/span&gt;'
+            f'{status.title()}&lt;/span&gt;'
+            f'&lt;span&gt;&lt;b&gt;{n:,}&lt;/b&gt; &lt;span style="color:{MUTED}"&gt;&amp;middot; '
+            f'{100 * n / max(total_periods, 1):.1f}%&lt;/span&gt;&lt;/span&gt;&lt;/div&gt;'
+            f'&lt;div class="brow-track"&gt;&lt;div class="brow-fill" '
+            f'style="width:{100 * n / max(top, 1):.1f}%;background:{c}"&gt;&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;')
+    st.markdown(
+        f'&lt;div class="card"&gt;&lt;div class="card-h"&gt;'
+        f'&lt;span class="card-t"&gt;Reconciliation against lodged BAS&lt;/span&gt;'
+        f'&lt;span class="card-n"&gt;{total_periods:,} entity-periods&lt;/span&gt;&lt;/div&gt;'
+        f'{bars}&lt;div class="card-n" style="margin-top:6px"&gt;Matched means variance of '
+        f'exactly $0.00 &amp;mdash; not within tolerance, nil.&lt;/div&gt;&lt;/div&gt;',
+        unsafe_allow_html=True)
+
+with right:
+    hist = score_histogram()
+    grid = hist.pivot_table(index="BUCKET", columns="MAX_SEVERITY",
+                            values="N", aggfunc="sum").fillna(0)
+    buckets = list(range(0, 100, 10))
+    peak = max(int(grid.sum(axis=1).max()), 1)
+    W, H, PAD = 560, 250, 26
+    bw = (W - PAD) / len(buckets)
+    svg = [f'&lt;svg viewBox="0 0 {W} {H + 34}" width="100%" height="{H + 34}"&gt;']
+    for gl in (0, 0.5, 1):
+        y = H - gl * (H - PAD)
+        svg.append(f'&lt;line x1="{PAD}" y1="{y:.0f}" x2="{W}" y2="{y:.0f}" '
+                   f'stroke="#1B2942" stroke-width="1"/&gt;')
+        svg.append(f'&lt;text x="0" y="{y - 4:.0f}" fill="{MUTED}" font-size="10"&gt;'
+                   f'{int(peak * gl):,}&lt;/text&gt;')
+    for i, b in enumerate(buckets):
+        x = PAD + i * bw
+        stack = 0.0
+        for s, c in (("LOW", GREEN), ("MEDIUM", AMBER), ("HIGH", RED)):
+            n = float(grid.loc[b, s]) if (b in grid.index and s in grid.columns) else 0.0
+            if n &lt;= 0:
+                continue
+            h = (n / peak) * (H - PAD)
+            stack += h
+            svg.append(f'&lt;rect x="{x + 3:.1f}" y="{H - stack:.1f}" width="{bw - 6:.1f}" '
+                       f'height="{h:.1f}" fill="{c}" rx="2"&gt;&lt;title&gt;score {b}-{b + 9} '
+                       f'&amp;middot; {s} &amp;middot; {int(n):,} lines&lt;/title&gt;&lt;/rect&gt;')
+        svg.append(f'&lt;text x="{x + bw / 2:.0f}" y="{H + 15}" fill="{MUTED}" font-size="10" '
+                   f'text-anchor="middle"&gt;{b}&lt;/text&gt;')
+    svg.append(f'&lt;text x="{W / 2:.0f}" y="{H + 31}" fill="{MUTED}" font-size="10" '
+               f'text-anchor="middle"&gt;risk score&lt;/text&gt;&lt;/svg&gt;')
+    # Legend covers only the severities present in the chart. Listing a level
+    # with no bars invites the reader to hunt for a colour that is not there.
+    legend = "".join(
+        f'&lt;span style="margin-left:11px"&gt;&lt;span class="dot" style="background:{c};'
+        f'box-shadow:none"&gt;&lt;/span&gt;&lt;span style="color:{MUTED};font-size:.71rem"&gt;{s.title()}'
+        f'&lt;/span&gt;&lt;/span&gt;'
+        for s, c in (("HIGH", RED), ("MEDIUM", AMBER), ("LOW", GREEN))
+        if s in grid.columns and float(grid[s].sum()) &gt; 0)
+    # One transparent hit target per bucket, laid over the SVG. Carries the whole
+    # severity split in a single tooltip, which reads better than hovering each
+    # stacked segment in turn.
+    ov = ""
+    for i, b in enumerate(buckets):
+        parts, tot_b = [], 0
+        for s in ("HIGH", "MEDIUM", "LOW"):
+            n = int(grid.loc[b, s]) if (b in grid.index and s in grid.columns) else 0
+            tot_b += n
+            if n:
+                parts.append(f"{s.title()} {n:,}")
+        tip = f"score {b}&amp;ndash;{b + 9} &amp;middot; {tot_b:,} lines"
+        if parts:
+            tip += " &amp;middot; " + " &amp;middot; ".join(parts)
+        edge = "tip-r" if i &lt;= 1 else ("tip-l" if i &gt;= len(buckets) - 2 else "")
+        ov += (f'&lt;div class="hx-c {edge}" style="left:{100 * (PAD + i * bw) / W:.2f}%;'
+               f'width:{100 * bw / W:.2f}%;height:{100 * H / (H + 34):.2f}%" '
+               f'data-tip="{tip}"&gt;&lt;/div&gt;')
+    st.markdown(
+        f'&lt;div class="card" style="overflow:visible"&gt;&lt;div class="card-h"&gt;'
+        f'&lt;span class="card-t"&gt;Risk score distribution&lt;/span&gt;'
+        f'&lt;span class="card-n"&gt;10-point bins{legend}&lt;/span&gt;'
+        f'&lt;/div&gt;&lt;div class="hx"&gt;{"".join(svg)}{ov}&lt;/div&gt;&lt;/div&gt;', unsafe_allow_html=True)
+
+
+# =====================================================================
+# HEATMAP - entity x period, shaded with our own scale (no matplotlib)
+# =====================================================================
+hm = heatmap()
+piv = hm.pivot(index="ENTITY_NAME", columns="P", values="N").fillna(0).astype(int)
+hi = max(int(piv.to_numpy().max()), 1)
+# Endpoints for the legend. The shading itself is rank-based (see below).
+lo = int(piv.to_numpy().min())
+
+
+def rag(t):
+    """Green-amber-red ramp for a 0..1 position in the observed range.
+
+    The scale is comparative, not absolute. Every entity-period carries a few
+    hundred flagged lines, so green means "quietest month in this population",
+    never "clean" - which is why the caption says fewest rather than good. A
+    reviewer who reads green as clean would draw exactly the wrong conclusion.
+    """
+    stops = ((0.0, (78, 216, 160)), (0.5, (232, 178, 58)), (1.0, (247, 107, 124)))
+    for (t0, c0), (t1, c1) in zip(stops, stops[1:]):
+        if t &lt;= t1:
+            f = (t - t0) / (t1 - t0)
+            return tuple(round(a + (b - a) * f) for a, b in zip(c0, c1))
+    return stops[-1][1]
+
+
+periods = list(piv.columns)
+# Shade by rank within the grid, not by linear position in the range. The
+# distribution is left-skewed - the median entity-period sits at 0.73 of the
+# range - so a linear ramp puts three quarters of the grid in the red and the
+# whole thing reads as one alarming block with no signal in it. Ranking spends
+# the full green-to-red spread on the ordering that matters. The caption says
+# "by rank" for exactly this reason: green is the quietest cell here, not a
+# clean one, and a reviewer must not read it as clean.
+flat = sorted(int(v) for v in piv.to_numpy().ravel())
+
+
+def pct(n):
+    """Position of n in the observed distribution, 0..1, ties averaged."""
+    a, b = bisect.bisect_left(flat, n), bisect.bisect_right(flat, n)
+    return ((a + b - 1) / 2) / max(len(flat) - 1, 1)
+
+
+median = flat[len(flat) // 2]
+cells = ""
+for ent in piv.index:
+    cells += f'&lt;div class="hm-lbl"&gt;{html.escape(str(ent))}&lt;/div&gt;'
+    for i, p in enumerate(periods):
+        n = int(piv.loc[ent, p])
+        r, g, b = rag(pct(n))
+        edge = "tip-r" if i &lt;= 1 else ("tip-l" if i &gt;= len(periods) - 2 else "")
+        cells += (f'&lt;div class="hm-c {edge}" style="background:rgb({r},{g},{b})" '
+                  f'data-tip="{html.escape(str(ent))} &amp;middot; {p} &amp;middot; '
+                  f'{n:,} flagged lines"&gt;&lt;/div&gt;')
+ramp = "".join(
+    f'&lt;span style="display:inline-block;width:15px;height:9px;background:'
+    f'rgb{rag(i / 6)};border-radius:2px;margin-left:2px"&gt;&lt;/span&gt;' for i in range(7))
+st.markdown(
+    f'&lt;div class="card" style="margin-top:14px;overflow:visible"&gt;'
+    f'&lt;div class="card-h"&gt;&lt;span class="card-t"&gt;Flagged lines by entity and period'
+    f'&lt;/span&gt;&lt;span class="card-n"&gt;{len(piv.index)} entities &amp;times; {len(periods)} '
+    f'periods &amp;middot; hover a cell for detail&lt;br&gt;fewest {lo:,}{ramp} most {hi:,}'
+    f' &amp;middot; shaded by rank &amp;middot; median {median:,}&lt;/span&gt;&lt;/div&gt;'
+    f'&lt;div class="hm" style="grid-template-columns:150px repeat({len(periods)},1fr)"&gt;'
+    f'{cells}&lt;/div&gt;&lt;/div&gt;', unsafe_allow_html=True)
+
+
+# =====================================================================
+# WORKLIST - rendered as our own table, so no st.dataframe theming fight
+# =====================================================================
+PILL = {"HIGH": (RED, "rgba(247,107,124,.14)"),
+        "MEDIUM": (AMBER, "rgba(232,178,58,.14)"),
+        "LOW": (GREEN, "rgba(78,216,160,.14)")}
+body = ""
+for _, r in rows.iterrows():
+    fg, bg = PILL.get(r.MAX_SEVERITY, (MUTED, "rgba(138,155,176,.14)"))
+    var = float(r.TAX_VARIANCE or 0)
+    body += (
+        f"&lt;tr&gt;&lt;td style='font-family:ui-monospace,Menlo,monospace;color:{MUTED}'&gt;"
+        f"{txt(r.GL_LINE_ID)}&lt;/td&gt;&lt;td&gt;{txt(r.ENTITY_NAME)}&lt;/td&gt;&lt;td&gt;{txt(r.SUPPLIER_NAME)}&lt;/td&gt;"
+        f"&lt;td style='color:{MUTED}'&gt;{txt(r.SUPPLY_CATEGORY)}&lt;/td&gt;&lt;td&gt;{txt(r.TAX_TREATMENT)}&lt;/td&gt;"
+        f"&lt;td class='num' style='color:{MUTED}'&gt;{txt(r.APPLIED_RULE_ID)}&lt;/td&gt;"
+        # Direction matters to a tax reviewer: under-declared GST is ATO
+        # exposure, over-declared is the firm's own money sitting with the ATO.
+        f"&lt;td class='num' style='color:{RED if var &lt; 0 else AMBER}'&gt;{var:,.2f}&lt;/td&gt;"
+        f"&lt;td style='color:{MUTED};font-size:.72rem'&gt;{txt(r.EXCEPTION_CODES)}&lt;/td&gt;"
+        f"&lt;td&gt;&lt;span class='pill' style='color:{fg};background:{bg}'&gt;{r.MAX_SEVERITY}&lt;/span&gt;&lt;/td&gt;"
+        f"&lt;td class='num'&gt;&lt;b&gt;{int(r.RISK_SCORE)}&lt;/b&gt;&lt;/td&gt;&lt;/tr&gt;")
+
+st.markdown(
+    f'&lt;div class="card" style="margin-top:14px"&gt;&lt;div class="card-h"&gt;'
+    f'&lt;span class="card-t"&gt;Exception worklist&lt;/span&gt;'
+    f'&lt;span class="card-n"&gt;{int(tot["N"]):,} lines match &amp;middot; '
+    f'{money(tot["ABS_VAR"])} absolute variance &amp;middot; showing top {len(rows)} '
+    f'by risk&lt;/span&gt;&lt;/div&gt;'
+    '&lt;table class="tt"&gt;&lt;thead&gt;&lt;tr&gt;'
+    '&lt;th&gt;GL line&lt;/th&gt;&lt;th&gt;Entity&lt;/th&gt;&lt;th&gt;Supplier&lt;/th&gt;&lt;th&gt;Category&lt;/th&gt;'
+    '&lt;th&gt;Treatment&lt;/th&gt;&lt;th class="num"&gt;Rule&lt;/th&gt;&lt;th class="num"&gt;Variance&lt;/th&gt;'
+    '&lt;th&gt;Codes&lt;/th&gt;&lt;th&gt;Severity&lt;/th&gt;&lt;th class="num"&gt;Risk&lt;/th&gt;'
+    f'&lt;/tr&gt;&lt;/thead&gt;&lt;tbody&gt;{body}&lt;/tbody&gt;&lt;/table&gt;&lt;/div&gt;', unsafe_allow_html=True)
+
+st.markdown(
+    f'&lt;div style="color:{MUTED};font-size:.72rem;margin-top:14px;text-align:center"&gt;'
+    'Every figure traces back to a rule row in &lt;code&gt;TAX.TAX_RULE_DETERMINATION&lt;/code&gt; '
+    'and a source document reference. Compute stays where the data is; only the '
+    'answer travels.&lt;/div&gt;', unsafe_allow_html=True)</code></pre></div>
+
+<div class="beat" data-beat="prove">
+<h3>Read it like a tax reviewer</h3>
+
+<ol>
+    <li><strong>Reconciliation panel.</strong> Matched means the computed net GST equals the lodged
+        figure to the cent &mdash; not within tolerance, nil. Everything in Investigate is a period
+        where the group filed a number the ledger does not support.</li>
+    <li><strong>Heatmap.</strong> Hover any cell for the entity, the period and the flagged line
+        count. Read down a column for a bad month across the group, and across a row for an entity
+        with a standing problem.</li>
+    <li><strong>Worklist.</strong> Drag <em>Minimum risk score</em> up to 80. The register collapses
+        to the lines worth a reviewer's morning, and the match count and absolute variance in the
+        panel header move with it because both are recomputed in Snowflake, not filtered in the
+        browser.</li>
+    <li><strong>Search.</strong> Type a supplier name to pull every flagged line for that vendor
+        across all entities and periods &mdash; the question a client asks when a supplier
+        relationship is under review.</li>
+</ol>
+</div>
+
+<div class="info-box warning"><span class="icon">&#127752;</span><div><strong>Green means fewest, not clean</strong><p>The heatmap is shaded by rank within the grid, so green is the quietest entity-period
+<em>in this population</em> &mdash; every cell still carries a few hundred flagged lines. The
+distribution is skewed enough that shading by absolute value would put three quarters of the grid in
+the red and hide the ordering that matters. Worth saying out loud in a client session, because a
+reviewer who reads green as clean draws exactly the wrong conclusion.</p></div></div>
+
+<div class="info-box success"><span class="icon">&#9889;</span><div><strong>What you did not have to do</strong><p>No connection string, no credential, no driver, no <code>pip install</code>, no container, no web
+server, no deployment. <code>get_active_session()</code> returns the session you are already
+authenticated in, so the app inherits your role and therefore your data access &mdash; row access
+and masking policies keep applying. <code>@st.cache_data(ttl=600)</code> on every query function
+means clicking through filters re-renders from cache rather than re-querying, so the warehouse can
+suspend while people are reading.</p></div></div>
+
+<div class="info-box" data-surface="guide"><span class="icon">&#128295;</span><div><strong>Why the theme sets every foreground colour explicitly</strong><p>Forcing a dark background is the easy half. Streamlit's own widgets still default to the light
+theme's dark text, which is invisible against it, so the app sets label, input and dropdown colours
+explicitly rather than relying on inheritance. The selector list looks redundant on purpose: the
+warehouse runtime ships an older Streamlit build whose select widgets are rendered with BaseWeb,
+while a current local install renders them with react-aria and exposes different attributes
+entirely. Targeting both is what keeps the dashboard dark wherever it lands. Anything you theme by
+injected CSS is coupled to Streamlit's internals, so it is worth opening a newly deployed app once
+rather than assuming.</p></div></div>
+
+<h3>If the app cannot see the objects</h3>
+
+<p>If the app loads but every panel reports that an object does not exist, the role running the app
+is not the role that built the objects. Run the grants below as <code>ACCOUNTADMIN</code>,
+substituting the role your app runs under, then reload the app.</p>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- Substitute the role the Streamlit app runs under.
 SET app_role = 'SYSADMIN';
@@ -3151,9 +3030,9 @@ GRANT SELECT ON ALL TABLES          IN SCHEMA GSI_TAX_WORKSHOP.RAW_DATA TO ROLE 
 
 GRANT USAGE  ON WAREHOUSE GSI_TAX_WH TO ROLE IDENTIFIER($app_role);</code></pre></div>
 
-<div class="info-box success"><span class="icon">✅</span><div><strong>Where you are</strong><p>The same two views that produced a results grid in Step 5 are now a filterable application with
-headline tiles, a variance chart, a risk-ranked register and a heatmap — built in one file, running
-next to the data, and shareable with a URL. This is the visual payoff of the whole lab.</p></div></div>
+<div class="info-box success"><span class="icon">&#9989;</span><div><strong>The same two views, now an application</strong><p>Live KPI tiles, a reconciliation panel, a risk distribution, an entity heatmap and a filterable
+worklist &mdash; one file, running next to the data, shareable with a URL. No web server, no
+separate hosting, and no copy of the ledger anywhere.</p></div></div>
     <label class="completion-checkbox"><input type="checkbox" onchange="markStepComplete(6)"> Mark step 6 complete</label>
     </div>
 </div>
@@ -3203,9 +3082,9 @@ different copy on four laptops. It is now a table. The rows carry explicit
 <code>VALID_FROM</code> and <code>VALID_TO</code> dates, so the position is effective-dated rather
 than simply overwritten — and the file did not have to change shape to get here.</p></div></div>
 
-<h3>Block 1 — clone the entire environment</h3>
+<h3>Clone the entire environment</h3>
 
-<p>You are about to change tax rules. Not in production.</p>
+<p>You are about to change tax rules, so do it somewhere that is not production.</p>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>CREATE DATABASE GSI_TAX_SCENARIO CLONE GSI_TAX_WORKSHOP;
 
@@ -3221,7 +3100,7 @@ micro-partitions with the original until one of them diverges. From this point t
 independent: anything you do in <code>GSI_TAX_SCENARIO</code> is invisible to
 <code>GSI_TAX_WORKSHOP</code>.</p>
 
-<h3>Block 2 — apply the new rules to the clone only</h3>
+<h3>Apply the new rules to the clone only</h3>
 
 <p>Note the database qualification on every statement. This is the whole safety mechanism, and it is
 worth reading twice before you run it.</p>
@@ -3286,7 +3165,7 @@ treatment for every affected line has already changed in the clone. There is not
 nothing to recompute and nothing to deploy — the next query simply returns a different and correct
 answer.</p></div></div>
 
-<h3>Block 3 — the two positions, side by side</h3>
+<h3>The two positions, side by side</h3>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>WITH production AS (
     SELECT ENTITY_NAME,
@@ -3312,11 +3191,11 @@ ORDER BY ABS(COALESCE(s.NET_GST, 0) - COALESCE(p.NET_GST, 0)) DESC;</code></pre>
 
 <p>One query, two databases, fourteen entities, and the answer the tax team asked for. Because the
 new rules carry a future <code>VALID_FROM</code>, the impact on <em>historical</em> periods is nil by
-construction — which is itself the finding, and the point worth making out loud: no lodged period is
+construction — which is itself the finding: no lodged period is
 restated. The forward effect appears the moment those periods close, and the tax team can see the
 number now rather than discovering it in a quarterly true-up.</p>
 
-<h3>Block 4 — throw the scenario away</h3>
+<h3>Throw the scenario away</h3>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>DROP DATABASE GSI_TAX_SCENARIO;</code></pre></div>
 
@@ -3325,12 +3204,11 @@ scenario after all, <code>UNDROP DATABASE GSI_TAX_SCENARIO;</code> brings it bac
 retention window.</p>
 
 <div class="info-box success"><span class="icon">⚡</span><div><strong>What the exercise actually cost</strong><p>The tax team's spreadsheet became governed, effective-dated reference data. Modelling its impact
-across a 2,400,000-line ledger cost one clone and four minutes — no environment request, no data
-copy, no storage, production untouched and no lodged period restated. Ask the room what the same
-question costs them today: who provisions the sandbox, how long the refresh takes, and how stale the
-data is by the time the answer arrives.</p></div></div>
+across a 2,400,000-line ledger cost one clone — no environment request, no data copy, no storage and
+production untouched. Worth comparing against what the same question costs today: who provisions the
+sandbox, how long the refresh takes, and how stale the data is by the time the answer arrives.</p></div></div>
 
-<div class="info-box"><span class="icon">🔑</span><div><strong>Why this is the pattern, not a trick</strong><p>Every rate change, every treaty update and every legislative amendment is this exercise. A rule
+<div class="info-box"><span class="icon">🔑</span><div><strong>Every rate change is this exercise</strong><p>Every rate change, every treaty update and every legislative amendment is this exercise. A rule
 arrives from the person who owns it, somebody has to say what it does to the numbers, and the answer
 has to be produced without disturbing the position already lodged. Clone, apply, compare, discard —
 and because the rules are data rather than code, the only artefact that changed was a set of rows
@@ -3355,7 +3233,7 @@ control the moment it is sent and is stale before it arrives. There is a better 
     <li>Understand why no data is copied and why access remains revocable.</li>
 </ul>
 
-<h3>Block 1 — create the share and grant it the snapshot only</h3>
+<h3>Create the share and grant it the snapshot only</h3>
 
 <p>Read the grant chain carefully. Usage on the database, usage on the <code>AUDIT</code> schema,
 select on one table. There is no grant on <code>RAW_DATA</code>, none on <code>CURATED</code> and
@@ -3364,7 +3242,7 @@ are all outside the share. The auditor sees the snapshot and nothing else.</p>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>USE ROLE ACCOUNTADMIN;
 
-CREATE SHARE GST_AUDIT_SNAPSHOT_SHARE
+CREATE OR REPLACE SHARE GST_AUDIT_SNAPSHOT_SHARE
   COMMENT = 'As-lodged GL snapshot for external audit. Read only.';
 
 -- Usage on the container objects. This grants the ability to see the
@@ -3377,7 +3255,7 @@ GRANT USAGE ON SCHEMA   GSI_TAX_WORKSHOP.AUDIT  TO SHARE GST_AUDIT_SNAPSHOT_SHAR
 GRANT SELECT ON TABLE GSI_TAX_WORKSHOP.AUDIT.GL_AS_LODGED_20260803
   TO SHARE GST_AUDIT_SNAPSHOT_SHARE;</code></pre></div>
 
-<h3>Block 2 — verify what the consumer can actually see</h3>
+<h3>Verify what the consumer can actually see</h3>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>SHOW GRANTS TO SHARE GST_AUDIT_SNAPSHOT_SHARE;</code></pre></div>
 

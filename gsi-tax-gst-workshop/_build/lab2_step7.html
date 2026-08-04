@@ -13,7 +13,7 @@ order the tax team should actually work it.</p>
     <li>Turn the label into a triage priority the tax team can sort on.</li>
 </ul>
 
-<div class="info-box warning"><span class="icon">⚠️</span><div><strong><code>AI_SENTIMENT</code> returns <code>mixed</code> as well as positive, negative and neutral</strong><p>This is the single most commonly missed detail with this function. A <code>CASE</code> that
+<div class="info-box warning"><span class="icon">⚠️</span><div><strong><code>AI_SENTIMENT</code> returns <code>mixed</code> as well as positive, negative and neutral</strong><p>A <code>CASE</code> that
 handles only <code>positive</code>, <code>negative</code> and <code>neutral</code> does not
 fail, does not warn and does not return NULL — it silently drops every <code>mixed</code> row
 into whatever your <code>ELSE</code> branch says, and <code>mixed</code> is exactly the label
@@ -22,7 +22,7 @@ furious about the assessment. Write all four branches explicitly, every time. An
 the output numerically: it is a label, not a score, so <code>&gt; 0.5</code> is meaningless
 here.</p></div></div>
 
-<h3>Block 1 — read the tone, next to the text</h3>
+<h3>Read the tone, next to the text</h3>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>WITH correspondence AS (
     -- Bound the population before the model sees it, as in every other step.
@@ -63,13 +63,13 @@ correction and then objects to the amount is genuinely both, and forcing it into
     </thead>
     <tbody>
         <tr><td><code>negative</code></td><td><strong>1 - URGENT</strong></td><td>A dispute, an escalation or a complaint. Someone is waiting and unhappy about it.</td></tr>
-        <tr><td><code>mixed</code></td><td><strong>2 - REVIEW</strong></td><td>Co-operative on one point and objecting on another. Needs a human to read it properly — and the branch most people forget to write.</td></tr>
+        <tr><td><code>mixed</code></td><td><strong>2 - REVIEW</strong></td><td>Co-operative on one point and objecting on another. Needs a human to read it properly.</td></tr>
         <tr><td><code>neutral</code></td><td><strong>3 - ROUTINE</strong></td><td>A factual note. Acknowledge and file.</td></tr>
         <tr><td><code>positive</code></td><td><strong>4 - MONITOR</strong></td><td>A confirmation that something has been resolved. No action beyond closing the item.</td></tr>
     </tbody>
 </table>
 
-<h3>Block 2 — persist it, and see the shape of the queue</h3>
+<h3>Persist it, and see the shape of the queue</h3>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>CREATE OR REPLACE VIEW AI_INSIGHTS.V_AI_CORRESPONDENCE_TRIAGE AS
 WITH correspondence AS (
@@ -117,10 +117,9 @@ FROM AI_INSIGHTS.V_AI_CORRESPONDENCE_TRIAGE
 GROUP BY 1, 2
 ORDER BY 1;</code></pre></div>
 
-<p>The <code>'9 - UNCLASSIFIED'</code> branch is a deliberate canary rather than defensive
-padding. Because all four documented labels are handled above it, any row landing there means
-the function returned something the view does not know about — and you will see it as a count
-rather than discovering it months later as a silently mis-prioritised message.</p>
+<p>The <code>'9 - UNCLASSIFIED'</code> branch is a canary. All four documented labels are handled
+above it, so any row landing there means the function returned something the view does not know about,
+and you see it as a count rather than as a silently mis-prioritised message months later.</p>
 
 <div class="info-box"><span class="icon">🔑</span><div><strong>Sentiment is a routing signal, not a tax position</strong><p>Nothing in this step changes a treatment, a rate or a return. An angry supplier is not
 evidence that the GST is wrong, and a grateful one is not evidence that it is right — the
@@ -129,8 +128,7 @@ gives the tax practice is order of work: 25 messages sorted so the disputed and 
 disputed reach a human first, and the acknowledgements wait. <code>NEEDS_RESPONSE</code> is
 the column the queue actually filters on.</p></div></div>
 
-<div class="info-box success"><span class="icon">✅</span><div><strong>Where you are</strong><p>Three kinds of unstructured evidence are now queryable: the narrative told you what was
-bought, the remarks told you what the invoice claimed, and the correspondence tells you how
+<div class="info-box success"><span class="icon">✅</span><div><strong>Three kinds of evidence, all queryable</strong><p>The narrative told you what was bought, the remarks told you what the invoice claimed, and the correspondence tells you how
 hard someone is pushing back. All three join to the ledger on
 <code>(SOURCE_SYSTEM, SOURCE_DOC_REF)</code>, which is what keeps them part of the tax record
 rather than a separate pile.</p></div></div>

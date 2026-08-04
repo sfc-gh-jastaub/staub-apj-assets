@@ -6,13 +6,13 @@ rule logic downstream can detect it, because the rules faithfully apply the corr
 wrong category.</p>
 
 <ul class="learning-list">
-    <li>Read the invoice narrative that has been sitting unused since Lab 1.</li>
+    <li>Read the invoice narrative that has been sitting unused since setup.</li>
     <li>Have a language model classify the supply from that narrative in one function call.</li>
     <li>Compare what the AI read against what the ledger booked, and find the disagreements.</li>
     <li>Push the findings into the exception register the tax team already works from.</li>
 </ul>
 
-<h3>Block 1 — the narrative, the booking and the AI verdict in one grid</h3>
+<h3>Narrative, booking and verdict side by side</h3>
 
 <p>Three columns: what the supplier wrote, what the ledger recorded, and what the model concluded.
 Where columns two and three disagree, you are looking at a candidate miscoding — and you are
@@ -54,10 +54,10 @@ ledger, and that is a deliberate design decision rather than a shortcut for the 
 model cost scales linearly with rows: running a classifier across the full ledger would cost
 thousands of times what this step costs and tell you almost nothing extra. In production you
 classify <strong>on arrival</strong> — each document once, as it lands — not retrospectively across
-the whole ledger every time somebody wants a report. Say this out loud to a client before they ask,
-because they will ask, and the answer is much stronger offered than extracted.</p></div></div>
+the whole ledger every time somebody wants a report. Offer a client that reasoning before they ask for it,
+because they will ask, and it lands better offered than extracted.</p></div></div>
 
-<h3>Block 2 — make it a view so the rest of the lab can join to it</h3>
+<h3>Make it a view so the rest of the lab can join to it</h3>
 
 <p>The classification is only useful if it is an object. The view below applies it across all 300
 documents and adds the one column that turns an observation into a finding: a flag comparing what
@@ -117,7 +117,7 @@ returns nothing for a narrative, a bare <code>&lt;&gt;</code> comparison would y
 every <code>WHERE MISCODING_FLAG</code> filter downstream. An unclassified document is not a clean
 document, and you do not want it disappearing from the count.</p>
 
-<h3>Block 3 — the miscoding pattern</h3>
+<h3>The miscoding pattern</h3>
 
 <p>Individual disagreements are interesting. The pattern across them is what a tax practice acts
 on, because it points at a process rather than a transaction.</p>
@@ -150,7 +150,7 @@ and it is invisible to every control that operates on numbers. It is only visibl
 reads. Until this step, your pipeline had no such control — not because the text was missing, but
 because nothing could query it.</p></div></div>
 
-<h3>Block 4 — close the loop into the existing work queue</h3>
+<h3>Close the loop into the existing work queue</h3>
 
 <p>A finding that lives in its own table is a finding nobody actions. The join below lands the AI
 results in <code>TAX.V_GST_EXCEPTIONS</code> — the same register the tax team has been working from
@@ -184,7 +184,7 @@ applied, <strong>the rule that applied it</strong> and the existing exception co
 line. A reviewer opening this result has the AI's opinion and the deterministic audit trail in a
 single row, and can disagree with the former without touching the latter.</p>
 
-<div class="info-box success"><span class="icon">🎯</span><div><strong>The teaching point — AI did not replace the rules</strong><p>Read the determination logic again: it is unchanged. No rule was rewritten, no rate was moved, no
+<div class="info-box success"><span class="icon">🎯</span><div><strong>AI did not replace the rules</strong><p>Read the determination logic again: it is unchanged. No rule was rewritten, no rate was moved, no
 treatment was decided by a model. What the AI did was supply a <strong>missing attribute</strong> to
 the rules — a supply category derived from evidence rather than from an account code somebody picked
 in a hurry. The determination layer stays deterministic, versioned and auditable; the AI sits

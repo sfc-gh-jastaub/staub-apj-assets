@@ -1,0 +1,287 @@
+<div class="beat" data-beat="business">
+<p><strong>Two things the ledger cannot tell you.</strong> What treatment each supply should attract,
+and what the group actually lodged with the ATO. The first lives in a workbook that one person
+maintains. The second lives in lodged returns that nobody has ever compared to the ledger line by
+line.</p>
+</div>
+
+<div class="beat" data-beat="decision">
+<p><strong>The rules are loaded as data, not written as SQL.</strong> Sixteen determination rules and
+nineteen rates go into tables the tax team can read and change. Lab 1 Step 4 is where that pays off;
+for now the point is that tax logic arrives as rows, so nothing about a rule change requires a
+developer or a deployment.</p>
+</div>
+
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>USE WAREHOUSE GSI_TAX_WH;
+USE DATABASE GSI_TAX_WORKSHOP;
+
+-- ---------------------------------------------------------------------
+-- TAX_RULE_DETERMINATION — 16 rows. NULL = wildcard. Lower PRIORITY wins.
+-- Rules 9 and 16 are the effective-dated pair: the group corrected its
+-- imported-professional-services position with effect from 1 July 2024.
+-- ---------------------------------------------------------------------
+CREATE OR REPLACE TABLE TAX.TAX_RULE_DETERMINATION (
+    RULE_ID                 NUMBER,
+    PRIORITY                NUMBER,
+    JURISDICTION            VARCHAR(2),
+    SUPPLY_CATEGORY         VARCHAR(30),
+    SUPPLIER_GST_REGISTERED BOOLEAN,
+    IS_CROSS_BORDER         BOOLEAN,
+    TAX_TREATMENT           VARCHAR(20),
+    RECOVERABLE             BOOLEAN,
+    VALID_FROM              DATE,
+    VALID_TO                DATE,
+    RULE_DESCRIPTION        VARCHAR(200)
+);
+
+INSERT INTO TAX.TAX_RULE_DETERMINATION VALUES
+( 1,10,NULL,'ENTERTAINMENT'    ,NULL ,NULL ,'NON_DEDUCTIBLE',FALSE,'2000-07-01','9999-12-31','Entertainment is taxable but the credit is denied'),
+( 2,10,NULL,'RESIDENTIAL_RENT' ,NULL ,NULL ,'INPUT_TAXED'   ,FALSE,'2000-07-01','9999-12-31','Residential rent is input taxed'),
+( 3,10,NULL,'FINANCIAL_SUPPLY' ,NULL ,NULL ,'INPUT_TAXED'   ,FALSE,'2000-07-01','9999-12-31','Financial supplies are input taxed'),
+( 4,10,NULL,'EXPORT_SALES'     ,NULL ,NULL ,'EXPORT'        ,TRUE ,'2000-07-01','9999-12-31','Exports are GST-free'),
+( 5,15,'AU','FOOD_BASIC'       ,NULL ,NULL ,'GST_FREE'      ,TRUE ,'2000-07-01','9999-12-31','Basic food is GST-free'),
+( 6,15,'AU','MEDICAL'          ,NULL ,NULL ,'GST_FREE'      ,TRUE ,'2000-07-01','9999-12-31','Most medical supplies are GST-free'),
+( 7,15,'AU','EDUCATION'        ,NULL ,NULL ,'GST_FREE'      ,TRUE ,'2000-07-01','9999-12-31','Most education is GST-free'),
+( 8,20,NULL,'STANDARD_SERVICES',FALSE,TRUE ,'REVERSE_CHARGE',TRUE ,'2000-07-01','9999-12-31','Imported service, unregistered offshore supplier - reverse charge'),
+( 9,20,NULL,'PROFESSIONAL_FEES',FALSE,TRUE ,'GST_FREE'      ,FALSE,'2000-07-01','2024-06-30','Imported professional fees - treated as out of scope (position superseded 1 Jul 2024)'),
+(16,20,NULL,'PROFESSIONAL_FEES',FALSE,TRUE ,'REVERSE_CHARGE',TRUE ,'2024-07-01','9999-12-31','Imported professional fees - reverse charge applies (corrected position, from 1 Jul 2024)'),
+(10,30,NULL,NULL               ,FALSE,FALSE,'GST_FREE'      ,FALSE,'2000-07-01','9999-12-31','Domestic unregistered supplier cannot charge GST - no credit'),
+(11,40,NULL,'STANDARD_GOODS'   ,NULL ,NULL ,'TAXABLE'       ,TRUE ,'2000-07-01','9999-12-31','Standard goods are taxable'),
+(12,40,NULL,'STANDARD_SERVICES',NULL ,NULL ,'TAXABLE'       ,TRUE ,'2000-07-01','9999-12-31','Standard services are taxable'),
+(13,40,NULL,'PROFESSIONAL_FEES',NULL ,NULL ,'TAXABLE'       ,TRUE ,'2000-07-01','9999-12-31','Professional fees are taxable'),
+(14,40,NULL,'CAPITAL_EQUIPMENT',NULL ,NULL ,'TAXABLE'       ,TRUE ,'2000-07-01','9999-12-31','Capital acquisitions are taxable, credit available'),
+(15,99,NULL,NULL               ,NULL ,NULL ,'TAXABLE'       ,TRUE ,'2000-07-01','9999-12-31','Catch-all default - review these');
+
+-- ---------------------------------------------------------------------
+-- TAX_RULE_RATE — 19 rows. 3 jurisdictions x 6 treatments, with the
+-- one standard rate split 8% -&gt; 9% at 2024-01-01 so that every
+-- (jurisdiction, treatment, date) combination is covered. The non-Australian
+-- rows are unused extensibility: no worked example in either lab touches them.
+-- The AU rate has not changed since 2000. The table is date-effective
+-- anyway, so that if it ever does, nobody edits a query.
+-- ---------------------------------------------------------------------
+CREATE OR REPLACE TABLE TAX.TAX_RULE_RATE (
+    RATE_ID       NUMBER,
+    JURISDICTION  VARCHAR(2),
+    TAX_TREATMENT VARCHAR(20),
+    RATE_PCT      NUMBER(5,2),
+    VALID_FROM    DATE,
+    VALID_TO      DATE
+);
+
+INSERT INTO TAX.TAX_RULE_RATE VALUES
+( 1,'AU','TAXABLE'       ,10.00,'2000-07-01','9999-12-31'),
+( 2,'AU','GST_FREE'      , 0.00,'2000-07-01','9999-12-31'),
+( 3,'AU','INPUT_TAXED'   , 0.00,'2000-07-01','9999-12-31'),
+( 4,'AU','EXPORT'        , 0.00,'2000-07-01','9999-12-31'),
+( 5,'AU','REVERSE_CHARGE',10.00,'2000-07-01','9999-12-31'),
+( 6,'AU','NON_DEDUCTIBLE',10.00,'2000-07-01','9999-12-31'),
+( 7,'NZ','TAXABLE'       ,15.00,'2000-07-01','9999-12-31'),
+( 8,'NZ','GST_FREE'      , 0.00,'2000-07-01','9999-12-31'),
+( 9,'NZ','INPUT_TAXED'   , 0.00,'2000-07-01','9999-12-31'),
+(10,'NZ','EXPORT'        , 0.00,'2000-07-01','9999-12-31'),
+(11,'NZ','REVERSE_CHARGE',15.00,'2000-07-01','9999-12-31'),
+(12,'NZ','NON_DEDUCTIBLE',15.00,'2000-07-01','9999-12-31'),
+(13,'SG','TAXABLE'       , 8.00,'2000-07-01','2023-12-31'),
+(19,'SG','TAXABLE'       , 9.00,'2024-01-01','9999-12-31'),
+(14,'SG','GST_FREE'      , 0.00,'2000-07-01','9999-12-31'),
+(15,'SG','INPUT_TAXED'   , 0.00,'2000-07-01','9999-12-31'),
+(16,'SG','EXPORT'        , 0.00,'2000-07-01','9999-12-31'),
+(17,'SG','REVERSE_CHARGE', 9.00,'2000-07-01','9999-12-31'),
+(18,'SG','NON_DEDUCTIBLE', 9.00,'2000-07-01','9999-12-31');
+
+-- ---------------------------------------------------------------------
+-- Transient helper: harmonise + determine, used only to derive the
+-- lodged BAS. Dropped at the end of this script.
+-- ---------------------------------------------------------------------
+CREATE OR REPLACE TRANSIENT TABLE RAW_DATA._TMP_DETERMINED AS
+WITH u AS (
+    SELECT 'SAP' AS SOURCE_SYSTEM, BUKRS AS SRC_ENTITY, HKONT AS ACCT,
+           TRY_TO_DATE(BUDAT,'YYYYMMDD') AS DOC_DATE, DMBTR AS NET_AMOUNT,
+           MWSTS AS BOOKED_TAX_AMOUNT, LIFNR AS SUPPLIER_ID, DOC_TYPE
+    FROM RAW_DATA.ERP_SAP_GL
+    UNION ALL
+    SELECT 'ORACLE', LEDGER_ID, CODE_COMBINATION, GL_DATE,
+           COALESCE(ENTERED_DR,0) - COALESCE(ENTERED_CR,0), TAX_AMOUNT, VENDOR_ID, DOC_TYPE
+    FROM RAW_DATA.ERP_ORACLE_GL
+    UNION ALL
+    SELECT 'LEGACY', entity_cd, acct, TRY_TO_DATE(txn_dt,'DD/MM/YYYY'),
+           amt_incl_tax - tax_amt, tax_amt, vendor_ref, doc_type
+    FROM RAW_DATA.ERP_LEGACY_AP
+),
+h AS (
+    SELECT u.*, e.ENTITY_ID, e.JURISDICTION, m.SUPPLY_CATEGORY,
+           s.GST_REGISTERED AS SUPPLIER_GST_REGISTERED,
+           (s.SUPPLIER_COUNTRY &lt;&gt; e.JURISDICTION) AS IS_CROSS_BORDER,
+           DATE_TRUNC('month', u.DOC_DATE) AS TAX_PERIOD
+    FROM u
+    LEFT JOIN RAW_DATA.DIM_LEGAL_ENTITY e
+           ON (u.SOURCE_SYSTEM='SAP'    AND e.SAP_BUKRS        = u.SRC_ENTITY)
+           OR (u.SOURCE_SYSTEM='ORACLE' AND e.ORACLE_LEDGER_ID = u.SRC_ENTITY)
+           OR (u.SOURCE_SYSTEM='LEGACY' AND e.LEGACY_ENTITY_CD = u.SRC_ENTITY)
+    LEFT JOIN RAW_DATA.DIM_ACCOUNT_MAPPING m
+           ON m.SOURCE_SYSTEM = u.SOURCE_SYSTEM AND m.NATIVE_ACCOUNT_CODE = u.ACCT
+    LEFT JOIN RAW_DATA.DIM_SUPPLIER s ON s.SUPPLIER_ID = u.SUPPLIER_ID
+),
+d AS (
+    SELECT h.ENTITY_ID, h.TAX_PERIOD, h.JURISDICTION, h.DOC_TYPE, h.NET_AMOUNT,
+           r.TAX_TREATMENT, r.RECOVERABLE
+    FROM h
+    JOIN TAX.TAX_RULE_DETERMINATION r
+      ON (r.JURISDICTION            IS NULL OR r.JURISDICTION            = h.JURISDICTION)
+     AND (r.SUPPLY_CATEGORY         IS NULL OR r.SUPPLY_CATEGORY         = h.SUPPLY_CATEGORY)
+     AND (r.SUPPLIER_GST_REGISTERED IS NULL OR r.SUPPLIER_GST_REGISTERED = h.SUPPLIER_GST_REGISTERED)
+     AND (r.IS_CROSS_BORDER         IS NULL OR r.IS_CROSS_BORDER         = h.IS_CROSS_BORDER)
+     AND h.DOC_DATE BETWEEN r.VALID_FROM AND r.VALID_TO
+    WHERE h.DOC_DATE IS NOT NULL AND h.ENTITY_ID IS NOT NULL
+    QUALIFY ROW_NUMBER() OVER (
+        PARTITION BY h.SOURCE_SYSTEM, h.SRC_ENTITY, h.ACCT, h.DOC_DATE,
+                     h.NET_AMOUNT, h.SUPPLIER_ID, h.DOC_TYPE
+        ORDER BY r.PRIORITY, r.RULE_ID) = 1
+)
+SELECT d.ENTITY_ID, d.TAX_PERIOD, d.DOC_TYPE, d.RECOVERABLE,
+       ROUND(d.NET_AMOUNT * rt.RATE_PCT / 100, 2) AS EXPECTED_TAX_AMOUNT,
+       d.NET_AMOUNT
+FROM d
+LEFT JOIN TAX.TAX_RULE_RATE rt
+       ON rt.JURISDICTION  = d.JURISDICTION
+      AND rt.TAX_TREATMENT = d.TAX_TREATMENT
+      AND d.TAX_PERIOD BETWEEN rt.VALID_FROM AND rt.VALID_TO;
+
+-- ---------------------------------------------------------------------
+-- FCT_BAS_LODGED — all 14 AU entities x every complete month in the window.
+-- ~8 entity-periods deliberately distorted (deterministic via HASH).
+-- ---------------------------------------------------------------------
+CREATE OR REPLACE TABLE RAW_DATA.FCT_BAS_LODGED AS
+WITH spine AS (
+    -- One row per COMPLETE month in the GL window (2023-06-01 .. last month),
+    -- so the reconciliation has no orphan periods on either side.
+    SELECT TAX_PERIOD FROM (
+        SELECT DATEADD('month', SEQ4(), '2023-06-01'::DATE) AS TAX_PERIOD
+        FROM TABLE(GENERATOR(ROWCOUNT =&gt; 600))
+    ) WHERE TAX_PERIOD &lt; '2026-08-01'::DATE
+),
+au AS (SELECT ENTITY_ID FROM RAW_DATA.DIM_LEGAL_ENTITY WHERE JURISDICTION = 'AU'),
+grid AS (SELECT au.ENTITY_ID, spine.TAX_PERIOD FROM au, spine),
+agg AS (
+    SELECT g.ENTITY_ID, g.TAX_PERIOD,
+           COALESCE(ABS(SUM(CASE WHEN t.DOC_TYPE='AR_INVOICE' THEN t.NET_AMOUNT END)), 0) AS G1,
+           COALESCE(ABS(SUM(CASE WHEN t.DOC_TYPE='AP_INVOICE' THEN t.NET_AMOUNT END)), 0) AS G11,
+           COALESCE(ABS(SUM(CASE WHEN t.DOC_TYPE='AR_INVOICE' THEN t.EXPECTED_TAX_AMOUNT END)), 0) AS L1A,
+           COALESCE(ABS(SUM(CASE WHEN t.DOC_TYPE='AP_INVOICE' AND t.RECOVERABLE
+                                 THEN t.EXPECTED_TAX_AMOUNT END)), 0) AS L1B
+    FROM grid g
+    LEFT JOIN RAW_DATA._TMP_DETERMINED t
+           ON t.ENTITY_ID = g.ENTITY_ID AND t.TAX_PERIOD = g.TAX_PERIOD
+    GROUP BY g.ENTITY_ID, g.TAX_PERIOD
+),
+dist AS (
+    SELECT agg.*,
+           CASE MOD(ABS(HASH(ENTITY_ID, TAX_PERIOD)), 90)
+                WHEN 0 THEN 0.85
+                WHEN 1 THEN 1.12
+                ELSE 1.00 END AS F
+    FROM agg
+)
+SELECT
+    ROW_NUMBER() OVER (ORDER BY ENTITY_ID, TAX_PERIOD)  AS LODGEMENT_ID,
+    ENTITY_ID,
+    TAX_PERIOD,
+    ROUND(G1  * F, 2)                                   AS G1_TOTAL_SALES,
+    ROUND(G11 * F, 2)                                   AS G11_NON_CAP_PURCHASES,
+    ROUND(L1A * F, 2)                                   AS LABEL_1A_GST_ON_SALES,
+    ROUND(L1B * F, 2)                                   AS LABEL_1B_GST_CREDITS,
+    ROUND(L1A * F, 2) - ROUND(L1B * F, 2)               AS NET_GST,
+    DATEADD('day', 21, LAST_DAY(TAX_PERIOD))            AS LODGED_DATE,
+    ARRAY_CONSTRUCT('R. Whitlam','P. Nguyen','A. Kowalski','S. Fraser','M. Devi')
+        [MOD(ABS(HASH(ENTITY_ID)), 5)]::VARCHAR         AS LODGED_BY
+FROM dist;
+
+DROP TABLE IF EXISTS RAW_DATA._TMP_DETERMINED;
+
+-- ---------------------------------------------------------------------
+-- DOC_TAX_INVOICE — 300 rows, selected from real SAP GL lines so the
+-- join back to the curated ledger always resolves.
+-- ~25% carry a narrative that disagrees with the booked category.
+-- ---------------------------------------------------------------------
+CREATE OR REPLACE TABLE RAW_DATA.DOC_TAX_INVOICE AS
+WITH p AS (
+  SELECT
+    ARRAY_CONSTRUCT('STANDARD_GOODS','STANDARD_SERVICES','PROFESSIONAL_FEES','ENTERTAINMENT',
+      'RESIDENTIAL_RENT','FINANCIAL_SUPPLY','EXPORT_SALES','FOOD_BASIC','MEDICAL','EDUCATION',
+      'CAPITAL_EQUIPMENT') AS CATS,
+    ARRAY_CONSTRUCT(
+      'Steel stock purchase, mill certificate attached, delivered to Altona works.',
+      'Annual software subscription billed from our United States parent entity.',
+      'Monthly external audit and assurance fees for the year ended 30 June.',
+      'Client dinner and drinks, six attendees, restaurant in the CBD.',
+      'Residential apartment lease for a relocated employee, 12 month term.',
+      'Bank facility arrangement fee on the renewed working capital line.',
+      'Sea freight ex Melbourne, export consignment, FOB terms.',
+      'Unprocessed fruit and vegetables supplied to the staff canteen.',
+      'Corporate health screening clinic for warehouse staff.',
+      'Accredited training course for the finance team, four attendees.',
+      'Forklift purchase, capitalised to plant and equipment.') AS NARR,
+    ARRAY_CONSTRUCT(
+      'Thanks for the prompt payment, much appreciated as always.',
+      'This invoice is now 45 days overdue. Please advise payment date immediately.',
+      'Please note our banking details have changed from this month.',
+      'We have credited the duplicate charge on your previous statement.',
+      'Escalating this to our credit team - third reminder sent with no response.',
+      'Happy to extend the discount if you settle within seven days.',
+      'Our ABN was updated last quarter, please refresh your vendor master.',
+      'Delivery was late and two units were damaged. Requesting partial credit.') AS CORR
+),
+base AS (
+  SELECT g.BELNR, g.LIFNR, m.SUPPLY_CATEGORY, s.SUPPLIER_ABN,
+         UNIFORM(1,100,RANDOM(1048)) AS MISCODE_R,
+         UNIFORM(1,10,RANDOM(1049))  AS SHIFT_R,
+         UNIFORM(1,100,RANDOM(1050)) AS ABN_R,
+         UNIFORM(0,7,RANDOM(1051))   AS CORR_R,
+         ROW_NUMBER() OVER (ORDER BY g.BELNR) AS RN
+  FROM RAW_DATA.ERP_SAP_GL g
+  JOIN RAW_DATA.DIM_ACCOUNT_MAPPING m
+    ON m.SOURCE_SYSTEM='SAP' AND m.NATIVE_ACCOUNT_CODE = g.HKONT
+  JOIN RAW_DATA.DIM_SUPPLIER s ON s.SUPPLIER_ID = g.LIFNR
+  WHERE g.DOC_TYPE = 'AP_INVOICE'
+  LIMIT 300
+),
+idx AS (
+  SELECT base.*,
+         ARRAY_POSITION(base.SUPPLY_CATEGORY::VARIANT, p.CATS) AS CAT_IDX, p.NARR, p.CORR
+  FROM base, p
+)
+SELECT
+    'DOC' || LPAD(RN::VARCHAR, 6, '0')                                       AS DOC_ID,
+    'SAP'                                                                    AS SOURCE_SYSTEM,
+    BELNR                                                                    AS SOURCE_DOC_REF,
+    LIFNR                                                                    AS SUPPLIER_ID,
+    SUPPLY_CATEGORY                                                          AS BOOKED_SUPPLY_CATEGORY,
+    NARR[IFF(MISCODE_R &lt;= 75, CAT_IDX, MOD(CAT_IDX + SHIFT_R, 11))]::VARCHAR AS INVOICE_NARRATIVE,
+    CASE WHEN ABN_R &lt;= 70 AND SUPPLIER_ABN IS NOT NULL
+         THEN 'Tax invoice. Supplier ABN ' || SUPPLIER_ABN ||
+              '. GST included in the total shown.'
+         ELSE 'Invoice total as shown. Please remit within 30 days.'
+    END                                                                      AS SUPPLIER_REMARKS,
+    CORR[CORR_R]::VARCHAR                                                    AS CORRESPONDENCE_TEXT
+FROM idx;</code></pre></div>
+
+<div class="beat" data-beat="prove">
+<p><strong>16 determination rules, 19 rates, 532 lodged BAS entity-periods and 300 invoice
+documents.</strong> The lodged BAS agrees with the ledger everywhere except roughly eighteen
+entity-periods, which is what makes Lab 1 Step 5 a real reconciliation rather than a demonstration
+that two numbers match.</p>
+<p><em>Snowflake: the invoice narratives are free text. Lab 2 reads them with Cortex AI functions
+without moving the data anywhere or standing up a separate service.</em></p>
+</div>
+
+<div data-surface="guide">
+<h3>How the lodged BAS was built</h3>
+<p><code>FCT_BAS_LODGED</code> is derived from a transient helper that applies the same rules the labs
+apply, then distorts a small number of entity-periods. This means the reconciliation in Lab 1 Step 5
+finds genuine variances with genuine causes, rather than noise that happens to differ. Ten Australian
+entities across every complete month in the window gives 532 rows.</p>
+<p>The 300 invoice documents are selected from real SAP GL lines rather than invented separately, so
+when Lab 2 finds a narrative that disagrees with the booked supply category, that document joins back
+to an actual ledger line with an actual exception against it.</p>
+</div>

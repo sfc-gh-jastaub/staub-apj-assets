@@ -14,23 +14,50 @@ The **notebooks are the primary surface** — every cell is ready to run, nothin
 
 | File | Duration | Covers |
 |---|---|---|
-| `gsi_tax_lab1_foundation.ipynb` | 60 min core + 28 optional | 2.4M ledger lines, three-ERP conformance, rules-as-data, BAS reconciliation, Time Travel, zero-copy audit clone |
+| `gsi_tax_lab0_setup.ipynb` | ~75 sec | Builds the warehouse, database, layered schemas and the deterministic data both labs run on. Run once, before the day. |
+| `gsi_tax_lab1_foundation.ipynb` | 57 min core + 28 optional | 2.4M ledger lines, three-ERP conformance, rules-as-data, BAS reconciliation, Streamlit control tower, Time Travel, zero-copy audit clone |
 | `gsi_tax_lab2_cortex_ai.ipynb` | 60 min core + 34 optional | AI_CLASSIFY, EXTRACT_ANSWER, AI_COMPLETE working papers, semantic view + Cortex Agent |
+| `gsi_tax_reset.ipynb` | ~1 min | Drops Lab 1, Lab 2 or the whole workshop. Safe to run twice and safe against a half-built environment. **Do not Run All** — the sections are ordered least to most destructive. |
+
+Both labs are self-directed: every cell is ready to run and each step carries its
+own orientation, so a participant who falls behind can still work forward alone.
 
 The three `gsi_tax_workshop_*.html` files are the matching read-along guides — narrative, expected
 results and architecture notes. Keep the guide open beside the notebook; the notebook cross-links to it
 per step, which is why the guides sit alongside the notebooks rather than in a subfolder.
 
-Start at `gsi_tax_workshop_index.html`.
+Start at `gsi_tax_workshop_index.html`. `v1_guide/` is the superseded first-generation guide, kept
+for reference only — nothing in it is current.
+
+## The Streamlit app
+
+`apps/gst_control_tower.py` is the GST control tower from Lab 1 step 6: a single-file dark dashboard
+(live KPI tiles, BAS reconciliation panel, risk distribution, entity heatmap, filterable worklist)
+that a participant pastes straight into Projects → Streamlit. It is a real file so it can be
+compiled, run locally against an account and `PUT` to a stage — the copies in the guide and the
+notebook are **generated from it** by `build.py`, so they cannot drift.
+
+Everything is drawn with CSS grid and inline SVG rather than a plotting library: `matplotlib` is not
+in the Streamlit in Snowflake warehouse runtime, and anything depending on it — including pandas'
+`Styler.background_gradient` — fails at render time rather than at import. `build.py` guards against
+reintroducing those APIs.
+
+To run it on a laptop before deploying:
+
+```bash
+streamlit run _build/local_streamlit.py -- apps/gst_control_tower.py   # from the project root
+```
 
 ## Prerequisites
 
 - Snowflake **Enterprise** account (Time Travel beyond 1 day, secure sharing)
 - ACCOUNTADMIN or a role that can create a warehouse and a database
 - `SNOWFLAKE.CORTEX_USER` database role for Lab 2
-- Notebook role `SYSADMIN` or above; Lab 1 cell 1 creates `GSI_TAX_WH` and switches to it
+- Notebook role `SYSADMIN` or above; `gsi_tax_lab0_setup.ipynb` cell 1 creates `GSI_TAX_WH` and
+  switches to it, so any warehouse will do to start
 
-Lab 1 creates everything Lab 2 depends on. There is **no cleanup until the end of Lab 2**.
+Run Lab 0 before the day. Lab 1 then creates everything Lab 2 depends on, and there is **no cleanup
+until the end of Lab 2**.
 
 ## Running it non-interactively
 
@@ -65,17 +92,26 @@ Everything generated comes from one source. Edit the `_build/lab{N}_step{M}.html
 then run:
 
 ```bash
-python3 _build/build.py               # fragments+sql -> guides, notebooks, sql/06; proves they agree
-python3 _build/run_notebook.py lab1   # executes every cell against Snowflake
+python3 _build/build.py                # fragments+sql+apps -> guides, notebooks, sql/06; proves they agree
+python3 _build/run_notebook.py setup   # executes every cell against Snowflake
+python3 _build/run_notebook.py lab1
 python3 _build/run_notebook.py lab2
+python3 _build/run_notebook.py reset
 ```
+
+Three things are generated and must never be hand-edited: the `gsi_tax_*.ipynb` notebooks, the
+`gsi_tax_workshop_*.html` guides, and `sql/06_lab2_ai_objects.sql`. Their sources are the
+`_build/*_step*.html` fragments, `sql/01..03`, and `apps/*.py`.
 
 `build.py` fails if the SQL in the finished guide differs from the SQL in the finished notebook, if a
 step exceeds its code-block budget, if HTML entities are unescaped, or if a superseded figure
 reappears. Never hand-edit the generated `.ipynb` or `.html` — they are overwritten.
 
-Expected gate results: Lab 1 **40 pass / 2 fail-as-designed / 0 fail**, Lab 2 **20 pass / 0 fail**.
-Skips are the Streamlit app cells and the Lab 2 cleanup.
+Expected gate results: setup **4 pass**, Lab 1 **40 pass / 2 fail-as-designed / 1 skip**, Lab 2
+**20 pass / 3 skip**, reset section 4 **3 pass**. The skips are the Streamlit app cells (nothing to
+assert headlessly — `build.py` compiles the app file instead) and the Lab 2 cleanup, which drops the
+workshop and so is only ever run deliberately.
 
-`_build/_WORKSHOP_SPEC.md` is the design contract, including the measured figures and the per-step
-query budget.
+`_WORKSHOP_SPEC.md` is the design contract, including the measured figures and the per-step query
+budget. `TAX_HOL_BLUEPRINT.md` is the condensed version — enough to regenerate a workshop of this
+shape from scratch.

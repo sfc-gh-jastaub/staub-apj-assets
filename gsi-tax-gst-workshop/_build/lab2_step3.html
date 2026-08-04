@@ -16,7 +16,7 @@ input tax credit must hold a valid tax invoice, and that invoice must show the
 paid or the GST was charged. It is one of the most mechanical findings in a GST review and one of the
 most commonly missed, because the ABN is on a piece of paper and the claim is in a database.</p></div></div>
 
-<h3>Block 1 — two questions, asked of the same text</h3>
+<h3>Two questions, asked of the same text</h3>
 
 <p><code>EXTRACT_ANSWER</code> takes a document and a question in plain English. It is not a regular
 expression: it does not need to know that an ABN is eleven digits in a 2-3-3-3 grouping, and it does
@@ -58,7 +58,7 @@ as <code>NULL</code> and can be counted, exactly as <code>TRY_TO_DATE</code> han
 legacy dates in Lab 1. Same principle, different data type: tolerate the bad value, record that it
 was bad, never let it stop the query.</p></div></div>
 
-<h3>Block 2 — the extraction as a queryable object</h3>
+<h3>The extraction as a queryable object</h3>
 
 <p>The view below extracts both fields across all 300 documents, normalises the ABN for comparison
 by stripping every non-digit character from both sides, and attaches the ledger's own view of the
@@ -134,7 +134,7 @@ and <code>75370698317</code> are the same ABN and a naive string comparison says
 <code>HAS_ABN_ON_INVOICE</code> tests for exactly eleven digits rather than for a non-empty string,
 so a partial extraction does not register as a valid ABN.</p>
 
-<h3>Block 3 — one query, three findings</h3>
+<h3>One query, three findings</h3>
 
 <p>Three separate questions, three separate reports and three separate meetings is how this work
 usually gets done. It fits in one result set.</p>
@@ -179,7 +179,7 @@ supplier master. Each of those conditions removes a class of false positive — 
 issued, a low-value acquisition below the threshold, a supplier whose ABN you already hold on file.
 A number a client cannot argue with is worth more than a bigger number they can.</p></div></div>
 
-<div class="info-box success"><span class="icon">🎯</span><div><strong>The teaching point — the invoice is the primary evidence</strong><p>In an audit, the ledger is a claim and the invoice is the evidence for it. Until this step your
+<div class="info-box success"><span class="icon">🎯</span><div><strong>The invoice is the primary evidence</strong><p>In an audit, the ledger is a claim and the invoice is the evidence for it. Until this step your
 pipeline could interrogate the claim in 2.4 million rows and could not read a single piece of
 evidence, so every ABN and GST-amount test was a manual sample of a filing cabinet. It is now a
 query — over the same governed data, joined to the same supplier master, in the same warehouse. The

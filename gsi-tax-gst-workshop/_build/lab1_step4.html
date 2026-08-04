@@ -1,19 +1,20 @@
-<p>This is the most important step in the lab, and it carries a single message: <strong>the rules live
-in a table that the tax team owns, not in code that a developer owns.</strong></p>
+<div class="beat" data-beat="business">
+<p><strong>The rules belong to the tax team, not to a developer.</strong> Tax logic is not a
+<code>CASE</code> statement. It is a body of rules with jurisdictions, effective dates and precedence,
+and it changes at short notice, usually decided by someone well outside IT. So hold it as data the tax
+team can read, review and change themselves.</p>
+</div>
 
-<p>Tax logic is not a <code>CASE</code> statement. It is a body of rules with jurisdictions,
-effective dates and precedence, and it changes without warning — usually at short notice, and
-usually not by anyone in IT. So we hold it as data the tax team can read, review and change
-themselves.</p>
+<p>By the end of this step you will:</p>
 
 <ul class="learning-list">
     <li>Read the entire determination logic of the system without reading any SQL.</li>
     <li>Apply effective-dated rules with generic SQL that contains no rates and no treatments.</li>
-    <li>Watch the group GST position change from a single <code>UPDATE</code> to one row of data.</li>
+    <li>Move the group GST position with a single <code>UPDATE</code> to one row of data.</li>
     <li>Stand up a self-maintaining exception register over the result.</li>
 </ul>
 
-<h3>Block 1 — the rules, as data</h3>
+<h3>The rules, as data</h3>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- The decision table. NULL means "matches anything". Lower PRIORITY wins.
 SELECT RULE_ID, PRIORITY, JURISDICTION, SUPPLY_CATEGORY,
@@ -28,12 +29,13 @@ SELECT RATE_ID, JURISDICTION, TAX_TREATMENT, RATE_PCT, VALID_FROM, VALID_TO
 FROM TAX.TAX_RULE_RATE
 ORDER BY JURISDICTION, VALID_FROM, TAX_TREATMENT;</code></pre></div>
 
-<p>Stop here and say this out loud, because it is the point of the step: <strong>a tax person can
-read those two result grids and understand the entire determination logic of the system without
-reading a single line of SQL.</strong> Sixteen rules and nineteen rates. No code review, no
-developer to interpret, nothing hidden in a query somebody wrote four years ago and left.</p>
+<div class="beat" data-beat="prove">
+<p><strong>A tax person can read those two grids and understand the whole determination logic without
+reading a line of SQL.</strong> Sixteen rules, nineteen rates. No code review, no developer to
+interpret, nothing buried in a query somebody wrote four years ago and left.</p>
+</div>
 
-<p>Now let the room find <strong>rules 9 and 16</strong>. Same priority, same predicates —
+<p>Find <strong>rules 9 and 16</strong>. Same priority, same predicates —
 <code>PROFESSIONAL_FEES</code>, supplier not GST registered, cross-border — and two adjacent,
 non-overlapping validity windows:</p>
 
@@ -63,22 +65,20 @@ from 1 July 2024 — before that date those acquisitions were treated as out of 
 date the reverse charge applies. Unrecognised reverse charge on imported services is one of the most
 common findings in an Australian GST review, so this is not a hypothetical.</p>
 
-<div class="info-box warning"><span class="icon">⚠️</span><div><strong>Ask the room this question before you run anything else</strong><p>What happens to three years of already-lodged BAS if that corrected treatment is
+<div class="info-box warning"><span class="icon">⚠️</span><div><strong>Worth pausing on before you run anything else</strong><p>What happens to three years of already-lodged BAS if that corrected treatment is
 <em>hard-coded</em> instead of effective-dated? You do not merely get next quarter wrong. Your
 computed position for closed periods moves, your reconciliation lights up for periods that were
 correct when they were filed, and you can no longer distinguish a genuine variance from one you
 manufactured yourself.</p></div></div>
 
-<p>One note on the rate table while it is on screen. The Australian GST rate has been 10% since
-1 July 2000 and has never changed — so the demonstrated change in this workshop is a change of
-<em>treatment</em>, not of rate, because that is what actually moves in Australia. The rate table is
-date-effective anyway, so that if the rate ever does move, nobody edits a query. Its non-Australian
-rows exist only as unused extensibility and no example in this workshop touches them.</p>
+<p>Two details on the rate table while it is on screen. The Australian GST rate has been 10% since
+1 July 2000 and has never changed, so what moves in this workshop is a <em>treatment</em>, not a rate
+&mdash; because treatment is what actually moves in Australia. The table is date-effective regardless,
+so if the rate ever does change, nobody edits a query.</p>
 
-<p>Rule 15 deserves one sentence too. It matches everything at priority 99, which guarantees that
-every line resolves to exactly one rule. A decision table without a catch-all silently drops rows,
-and dropped rows in a tax computation are the worst possible failure mode because the total still
-looks reasonable.</p>
+<p>And rule 15 matches everything at priority 99. That catch-all is what guarantees every line resolves
+to exactly one rule. A decision table without one silently drops rows, which is the worst failure mode
+in a tax computation because the total still looks reasonable.</p>
 
 <h3>Why two rule tables and not one</h3>
 
@@ -95,7 +95,7 @@ computation. It is also a straightforward injection surface, because anyone who 
 can then execute arbitrary SQL with the pipeline's privileges. Rules here are structured columns
 with declared types, which is why they can be constrained, reviewed and diffed.</p></div></div>
 
-<h3>Block 2 — build the determination view</h3>
+<h3>Build the determination view</h3>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>CREATE OR REPLACE VIEW TAX.V_GST_DETERMINED AS
 WITH matched AS (
@@ -137,7 +137,7 @@ is the whole idea: a transaction is judged by the rules that applied <em>when it
 also why rules 9 and 16 can share priority 20 without ambiguity — their windows do not overlap, so
 only one of them can ever match a given line.</p>
 
-<div class="info-box"><span class="icon">💡</span><div><strong>QUALIFY, in one paragraph</strong><p>Most attendees will not have met <code>QUALIFY</code>. It filters on the result of a window
+<div class="info-box"><span class="icon">💡</span><div><strong>QUALIFY, in one paragraph</strong><p>If you have not met <code>QUALIFY</code> before: It filters on the result of a window
 function, in the same way <code>HAVING</code> filters on the result of an aggregate. Here, a single
 ledger line can legitimately match several rules — an entertainment line matches rule 1 and also the
 rule 15 catch-all. <code>ROW_NUMBER() OVER (PARTITION BY g.GL_LINE_ID ORDER BY r.PRIORITY,
@@ -152,7 +152,7 @@ catastrophic, because they are precisely the lines somebody needs to chase. As a
 2,400,000 lines survive and <code>TAX_TREATMENT</code> comes back <code>NULL</code> only where
 <code>IS_DATE_PARSED = FALSE</code>. Missing information is represented as missing information.</p>
 
-<h3>Block 3 — prove the effective dating</h3>
+<h3>Prove the effective dating</h3>
 
 <p>One query, one population: Australian imported professional fees from offshore suppliers that are
 not GST registered. Grouped either side of 1 July 2024, from the same view, with no conditional tax
@@ -194,7 +194,7 @@ ORDER BY 1;</code></pre></div>
 </table>
 
 <p>An otherwise identical population, split only by document date, produces two different treatments
-and <strong>$25.5 million</strong> of expected GST on one side of the line that does not exist on the
+and <strong>$26.2 million</strong> of expected GST on one side of the line that does not exist on the
 other. Nothing in the query decided that. The rows in the rule table decided it.</p>
 
 <div class="info-box warning"><span class="icon">⚠️</span><div><strong>Now make the consequence explicit</strong><p>Had the corrected treatment been hard-coded — a <code>CASE</code> expression saying imported
@@ -204,10 +204,10 @@ be silently restated, and the reconciliation in Step 5 would raise variances aga
 were correct when they were filed. Effective dating is not bookkeeping neatness. It is the only
 thing standing between you and restating three years of lodged BAS by accident.</p></div></div>
 
-<h3>Block 4 — the moment</h3>
+<h3>Change one row and watch the position move</h3>
 
-<p>Someone in the room is about to ask what happens when the tax team wants a change. Answer it by
-doing it. Run all three statements in order.</p>
+<p>So what happens when the tax team wants a change? Do it and see. Run all three statements in
+order.</p>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- 1. The tax team wants to model the reverse charge at a different rate.
 --    They change one row of data. Not a query. Not a deployment.
@@ -215,7 +215,7 @@ UPDATE TAX.TAX_RULE_RATE
    SET RATE_PCT = 15.00
  WHERE JURISDICTION = 'AU' AND TAX_TREATMENT = 'REVERSE_CHARGE';
 
--- 2. Exactly the same aggregate as Block 3. Nothing was rebuilt,
+-- 2. Exactly the same aggregate you just ran. Nothing was rebuilt,
 --    nothing was refreshed, nothing was redeployed.
 SELECT APPLIED_RULE_ID,
        TAX_TREATMENT,
@@ -235,16 +235,20 @@ UPDATE TAX.TAX_RULE_RATE
    SET RATE_PCT = 10.00
  WHERE JURISDICTION = 'AU' AND TAX_TREATMENT = 'REVERSE_CHARGE';</code></pre></div>
 
-<p><code>APPLIED_RATE_PCT</code> now reads 15.00 and the expected GST on those 4,690 lines has risen
-by half, to roughly $38.3 million. Then statement 3 puts it back and the position returns to
-$26,247,261. The group's computed GST position moved twice in about four seconds.</p>
+<div class="beat" data-beat="prove">
+<p><strong>The group's computed GST position moved twice in about four seconds.</strong>
+<code>APPLIED_RATE_PCT</code> reads 15.00 and expected GST on those 4,690 lines rises by half to
+$39,370,891. Statement 3 puts it back and the position returns to $26,247,261.</p>
+<p><em>Snowflake: the view is generic, so a rule change takes effect on the next query. No rebuild, no
+refresh, no redeployment.</em></p>
+</div>
 
 <div class="info-box success"><span class="icon">🔑</span><div><strong>This is ownership, not architecture</strong><p>No code was edited. Nothing was rebuilt, nothing was redeployed, no release was cut and no
 developer was involved. <strong>The person who owns the rule changed the rule.</strong> That is the
 whole point of holding tax logic as data: the people accountable for the position can move the
 position, and everyone else can see exactly what they changed and when it takes effect.</p></div></div>
 
-<h3>Block 5 — the standing exception register</h3>
+<h3>The standing exception register</h3>
 
 <p>One view that turns the determined ledger into a work queue: every line that fails a tax test,
 with the reasons concatenated and a risk score to sort by.</p>
@@ -328,7 +332,7 @@ always sorted worst-first.</p>
 
 <p>A line can fail more than one test, which is why the code counts sum to more than 253,394 and why
 <code>EXCEPTION_COUNT</code> feeds the risk score. Note that <code>E2</code> returns exactly the
-8,088 unparseable dates from Step 3 — the left join in Block 2 is what allowed those lines to reach
+8,088 unparseable dates from Step 3 — the left join in the determination view is what allowed those lines to reach
 this register at all. Lab 2 comes back to this queue and uses Cortex to explain each flagged line in
 plain English.</p>
 

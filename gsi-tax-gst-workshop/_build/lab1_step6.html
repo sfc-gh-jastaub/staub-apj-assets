@@ -1,22 +1,47 @@
-<p><strong>⭐ RECOMMENDED FIRST.</strong> Of the three optional steps this is the one to do if you only
-do one. Everything you have built so far lives in a results grid; this turns it into an application
-your client can open, filter and use — written in Python, running inside Snowflake, with no
-infrastructure, no deployment pipeline and no connection string.</p>
+<div class="beat" data-beat="business">
+<p><strong>⭐ RECOMMENDED FIRST.</strong> Of the three optional steps, do this one if you only do one.
+Everything you have built so far lives in a results grid. A results grid is fine for you and useless
+to the tax manager who has to work a month of exceptions, and worse than useless in front of a
+client. This step turns the same two views into a screen the practice can actually run a review
+from &mdash; written in Python, running inside Snowflake, with no infrastructure and no connection
+string.</p>
+</div>
 
 <ul class="learning-list">
-    <li>Build a three-tab tax control tower over <code>TAX.V_GST_VS_BAS</code> and
+    <li>Build a single-page GST control tower over <code>TAX.V_GST_VS_BAS</code> and
         <code>TAX.V_GST_EXCEPTIONS</code>.</li>
     <li>Use the session that already exists rather than authenticating again.</li>
-    <li>Cache every query so that filtering the page does not re-scan the ledger.</li>
-    <li>Understand why every query in the app aggregates or limits before it returns.</li>
+    <li>Cache every query so filtering the page does not re-scan the ledger.</li>
+    <li>See why every query in the app aggregates or bounds its result before it returns.</li>
 </ul>
+
+<div class="beat" data-beat="decision">
+<h3>Three decisions worth understanding before you paste it</h3>
+
+<p><strong>One file, no project.</strong> The whole dashboard &mdash; layout, theme, queries and
+charts &mdash; is a single <code>.py</code> file. There is no <code>requirements.txt</code>, no
+<code>.streamlit/config.toml</code> and nothing to build. That matters for handing it on: a
+colleague can copy one file into their own account and it runs. The dark theme is injected as CSS
+inside the app for exactly that reason.</p>
+
+<p><strong>Aggregate in Snowflake, render the answer.</strong> The two views sit on 2.4 million
+ledger lines and 253,394 flagged exceptions. Every query in the app either aggregates server side
+and returns tens of rows, or ranks by <code>RISK_SCORE</code> and returns 150. Nobody reads a
+quarter of a million rows, so nothing is gained by shipping them to a browser.</p>
+
+<p><strong>Draw the visuals in HTML, not a plotting library.</strong> The heatmap and the score
+distribution are hand-built with CSS grid and inline SVG. Partly because
+<code>matplotlib</code> is not in the Streamlit in Snowflake warehouse runtime &mdash; anything
+depending on it, including pandas' <code>Styler.background_gradient</code>, fails at render time
+rather than at import. Partly because it keeps the app to one file with no packages to declare.</p>
+</div>
 
 <h3>Create the app in Snowsight</h3>
 
 <ol>
     <li>In the left navigation choose <strong>Projects</strong>, then <strong>Streamlit</strong>.</li>
     <li>Click <strong>+ Streamlit App</strong>.</li>
-    <li>Name it <code>GST Tax Control Tower</code>.</li>
+    <li>Name it <code>GST Control Tower</code>.</li>
     <li>Set <strong>App location</strong> to database <code>GSI_TAX_WORKSHOP</code> and schema
         <code>APPS</code>.</li>
     <li>Set <strong>App warehouse</strong> to <code>GSI_TAX_WH</code>.</li>
@@ -24,271 +49,633 @@ infrastructure, no deployment pipeline and no connection string.</p>
         and click <strong>Run</strong>.</li>
 </ol>
 
-<p>The app runs unmodified. There is nothing to edit, nothing to configure and no packages to add —
-Streamlit and the Snowpark library are already present in the environment.</p>
+<p>The app runs unmodified. Nothing to edit, nothing to configure, no packages to add &mdash;
+Streamlit and the Snowpark library are already in the environment.</p>
 
-<h3>Block 1 — the application</h3>
+<h3>The control tower app</h3>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">python</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>import streamlit as st
+import bisect
+import html
+
 import pandas as pd
+from datetime import datetime, timezone
 from snowflake.snowpark.context import get_active_session
 
-st.set_page_config(page_title="GST Tax Control Tower", layout="wide")
+st.set_page_config(page_title="GST Control Tower", layout="wide")
 
-# The session already exists. Never build a connection inside
-# Streamlit in Snowflake.
 session = get_active_session()
 
+# =====================================================================
+# THEME
+#
+# One dark theme, defined once, applied with injected CSS so the whole
+# app stays a SINGLE file - no .streamlit/config.toml to copy alongside it.
+#
+# Because the background is forced dark, every foreground colour is set
+# explicitly too. Streamlit's own widgets default to the light theme's dark
+# text, which would be invisible here, so widget labels, inputs and dropdowns
+# are all given an explicit light colour below.
+# =====================================================================
+BG      = "#0B1220"   # page
+PANEL   = "#111C2E"   # cards
+EDGE    = "#1E2D45"   # borders
+INK     = "#E6EDF6"   # primary text
+MUTED   = "#8A9BB0"   # secondary text
+BLUE    = "#29B5E8"   # Snowflake accent
+RED     = "#F76B7C"   # investigate / high
+AMBER   = "#E8B23A"   # review / medium
+GREEN   = "#4ED8A0"   # matched / clean
 
-# ---------------------------------------------------------------------
-# Every query below is aggregated or LIMITed server side. The ledger is
-# 2,400,000 lines and the exception register is 253,394 - returning either
-# of them row level would time the app out and achieve nothing, because
-# nobody reads 253,394 rows. Aggregate in Snowflake, render the summary.
-# ---------------------------------------------------------------------
+CSS = """
+&lt;style&gt;
+:root {
+  --bg:#0B1220; --panel:#111C2E; --edge:#1E2D45;
+  --ink:#E6EDF6; --muted:#8A9BB0;
+  --blue:#29B5E8; --red:#F76B7C; --amber:#E8B23A; --green:#4ED8A0;
+}
+/* page + base text -------------------------------------------------- */
+.stApp, [data-testid="stAppViewContainer"] { background: var(--bg); }
+[data-testid="stHeader"] { background: transparent; }
+.block-container { padding: 1.1rem 1.4rem 3rem; max-width: 1500px; }
+.stApp, .stApp p, .stApp span, .stApp div, .stApp label {
+  color: var(--ink);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+/* every Streamlit widget label, explicitly light ---------------------- */
+[data-testid="stWidgetLabel"], [data-testid="stWidgetLabel"] p,
+.stSlider label, .stSelectbox label, .stTextInput label, .stMultiSelect label {
+  color: var(--muted) !important;
+  font-size: .68rem !important; font-weight: 700 !important;
+  letter-spacing: .09em !important; text-transform: uppercase !important;
+}
+/* Inputs: dark field, light text.
+   Streamlit changed its widget internals: older builds (which is what the
+   Snowflake warehouse runtime ships) render selects with BaseWeb and expose
+   data-baseweb="select"; newer builds use react-aria and expose neither. We
+   target both, plus the stable data-testid wrappers, so the dashboard stays
+   dark whichever build it lands on. The wrapper is what carries the default
+   light fill, so styling only the &lt;input&gt; leaves a white box around it. */
+.stTextInput input, .stNumberInput input,
+[data-testid="stTextInputRootElement"],
+[data-testid="stTextInputRootElement"] &gt; div {
+  background: #0D1728 !important;
+  color: var(--ink) !important;
+  -webkit-text-fill-color: var(--ink) !important;
+  border-color: var(--edge) !important;
+  border-radius: 8px !important;
+}
+.stTextInput input::placeholder { color: #5E7189 !important; opacity: 1 !important; }
+/* select shell: BaseWeb (older) and react-aria (newer) */
+[data-baseweb="select"] &gt; div,
+[data-testid="stSelectbox"] [role="group"],
+[data-testid="stMultiSelect"] [role="group"],
+.react-aria-ComboBox [role="group"] {
+  background: #0D1728 !important; border-color: var(--edge) !important;
+  color: var(--ink) !important; border-radius: 8px !important;
+}
+[data-baseweb="select"] div, [data-baseweb="select"] span,
+[data-testid="stSelectbox"] input, [data-testid="stMultiSelect"] input,
+[data-testid="stSelectbox"] [role="combobox"] {
+  color: var(--ink) !important; -webkit-text-fill-color: var(--ink) !important;
+  background: transparent !important;
+}
+/* dropdown panel */
+[data-baseweb="popover"], [data-baseweb="menu"], [role="listbox"],
+.react-aria-Popover, .react-aria-ListBox {
+  background: #0D1728 !important; border: 1px solid var(--edge) !important;
+}
+[role="option"], .react-aria-ListBoxItem {
+  background: #0D1728 !important; color: var(--ink) !important;
+}
+[role="option"]:hover, .react-aria-ListBoxItem[data-focused] { background: #16243A !important; }
+[data-baseweb="tag"] { background: #16243A !important; color: var(--ink) !important; }
+/* slider ------------------------------------------------------------- */
+.stSlider [data-baseweb="slider"] div[role="slider"],
+.stSlider [role="slider"] { background: var(--blue) !important; }
+.stSlider [data-testid="stTickBar"], .stSlider [data-testid="stTickBarMin"],
+.stSlider [data-testid="stTickBarMax"] { color: var(--muted) !important; background: transparent !important; }
+/* kill Streamlit chrome we are replacing ----------------------------- */
+[data-testid="stToolbar"], footer, #MainMenu { visibility: hidden; }
+hr { border-color: var(--edge); }
+
+/* ---------------- our own components ------------------------------- */
+.topbar {
+  display:flex; align-items:center; gap:14px;
+  background:linear-gradient(135deg,#12243C 0%,#0E1A2C 55%,#141B33 100%);
+  border:1px solid var(--edge); border-radius:14px; padding:14px 18px; margin-bottom:14px;
+}
+.logo {
+  width:38px;height:38px;border-radius:10px;flex:0 0 38px;
+  background:linear-gradient(135deg,var(--blue),#1273A8);
+  display:flex;align-items:center;justify-content:center;font-size:19px;
+}
+.t-title { font-size:1.28rem; font-weight:800; letter-spacing:-.02em; line-height:1.15; }
+.t-meta  { font-size:.76rem; color:var(--muted); margin-top:3px; }
+.dot { height:7px;width:7px;border-radius:50%;display:inline-block;margin-right:5px;
+       background:var(--green); box-shadow:0 0 0 3px rgba(78,216,160,.16); }
+
+.kpis { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:14px; }
+.kpi { background:var(--panel); border:1px solid var(--edge); border-radius:14px;
+       padding:15px 17px 13px; position:relative; overflow:hidden; }
+.kpi-l { font-size:.65rem; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); }
+.kpi-v { font-size:2.15rem; font-weight:800; letter-spacing:-.03em; line-height:1.12; margin:5px 0 2px; }
+.kpi-s { font-size:.74rem; color:var(--muted); min-height:2.5em; }
+.kpi-track { position:absolute; left:17px; right:17px; bottom:9px; height:3px;
+             background:#1B2942; border-radius:3px; overflow:hidden; }
+.kpi-fill { height:100%; border-radius:3px; animation:grow 1.05s cubic-bezier(.22,1,.36,1) both; }
+@keyframes grow { from { width:0 } }
+
+.card { background:var(--panel); border:1px solid var(--edge); border-radius:14px;
+        padding:15px 17px 17px; height:100%; }
+.card-h { display:flex; justify-content:space-between; align-items:baseline; gap:14px; margin-bottom:14px; }
+.card-t { font-size:.95rem; font-weight:700; white-space:nowrap; }
+.card-n { font-size:.71rem; color:var(--muted); text-align:right; }
+
+.brow { margin-bottom:13px; }
+.brow-top { display:flex; justify-content:space-between; align-items:baseline; font-size:.82rem; }
+.brow-track { height:8px; background:#1B2942; border-radius:5px; margin-top:6px; overflow:hidden; }
+.brow-fill { height:100%; border-radius:5px; animation:grow 1.15s cubic-bezier(.22,1,.36,1) both; }
+
+table.tt { width:100%; border-collapse:collapse; font-size:.79rem; }
+table.tt th { text-align:left; font-size:.63rem; letter-spacing:.09em; text-transform:uppercase;
+              color:var(--muted); font-weight:700; padding:0 9px 8px; border-bottom:1px solid var(--edge); }
+table.tt td { padding:8px 9px; border-bottom:1px solid #16223A; color:var(--ink); }
+table.tt tr:hover td { background:#16243A; }
+.num { font-variant-numeric:tabular-nums; text-align:right;
+       font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+.pill { display:inline-block; padding:2px 9px; border-radius:999px;
+        font-size:.66rem; font-weight:700; letter-spacing:.03em; }
+
+.hm { display:grid; gap:2px; }
+.hm-c { height:19px; border-radius:3px; }
+.hm-c:hover { outline:1.5px solid var(--ink); z-index:6; }
+
+/* Instant hover tooltip, shared by the heatmap cells and the histogram buckets.
+   The browser's native title attribute waits about a second and renders in OS
+   chrome, so in a room people conclude hover is broken before it ever appears. */
+[data-tip] { position:relative; }
+[data-tip]:hover::after {
+  content:attr(data-tip); position:absolute; bottom:calc(100% + 7px); left:50%;
+  transform:translateX(-50%); background:#050A14; color:var(--ink);
+  border:1px solid var(--edge); padding:6px 10px; border-radius:6px;
+  font-size:.7rem; white-space:nowrap; z-index:30; pointer-events:none;
+  box-shadow:0 8px 22px rgba(0,0,0,.6);
+}
+/* Clamp the first and last columns. A centred tooltip on the final period runs
+   past the viewport, and Streamlit's app container is overflow:hidden, so it
+   would be cut in half rather than just overhanging. */
+[data-tip].tip-r:hover::after { left:0; transform:none; }
+[data-tip].tip-l:hover::after { left:auto; right:0; transform:none; }
+
+/* Transparent hit targets laid over the histogram, one per bucket, so the bars
+   get the same instant tooltip as the heatmap without rewriting the SVG. */
+.hx { position:relative; }
+.hx-c { position:absolute; top:0; border-radius:4px; }
+.hx-c:hover { background:rgba(230,237,246,.06); }
+.hm-lbl { font-size:.7rem; color:var(--muted); padding-right:9px; text-align:right;
+          white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+&lt;/style&gt;
+"""
+st.markdown(CSS, unsafe_allow_html=True)
+
+
+# =====================================================================
+# DATA
+# Every query aggregates or bounds its result. Nothing returns a row per
+# ledger line: the register is 253,394 rows and the browser does not want them.
+# =====================================================================
+@st.cache_data(ttl=600)
+def recon_summary():
+    return session.sql("""
+        SELECT RECON_STATUS, COUNT(*) AS N, ROUND(SUM(ABS(VARIANCE_NET)),2) AS ABS_VAR
+        FROM TAX.V_GST_VS_BAS GROUP BY 1
+    """).to_pandas()
+
 
 @st.cache_data(ttl=600)
-def load_headline():
+def ledger_scale():
+    """Header and KPI figures, read live rather than hardcoded.
+
+    Lab 1 posts a correcting entry, which moves the ledger count off the round
+    2,400,000 and shifts one entity-period out of MATCHED. A hardcoded number
+    would quietly start lying the moment a participant runs that step.
+    """
     return session.sql("""
-        SELECT COUNT(*)                                            AS ENTITY_PERIODS,
-               SUM(IFF(RECON_STATUS = 'MATCHED', 1, 0))            AS MATCHED,
-               SUM(IFF(RECON_STATUS = 'INVESTIGATE', 1, 0))        AS INVESTIGATE,
-               ROUND(SUM(ABS(VARIANCE_NET)), 2)                    AS TOTAL_ABS_VARIANCE
+        SELECT (SELECT COUNT(*) FROM CURATED.GL_HARMONISED) AS LINES,
+               COUNT(DISTINCT ENTITY_ID)                    AS ENTITIES,
+               COUNT(DISTINCT TAX_PERIOD)                   AS PERIODS
         FROM TAX.V_GST_VS_BAS
-    """).to_pandas()
+    """).to_pandas().iloc[0]
 
 
 @st.cache_data(ttl=600)
-def load_exception_headline():
+def exception_summary():
     return session.sql("""
-        SELECT COUNT(*)                                    AS FLAGGED_LINES,
-               SUM(IFF(MAX_SEVERITY = 'HIGH', 1, 0))       AS HIGH_SEVERITY,
-               ROUND(AVG(RISK_SCORE), 2)                   AS AVG_RISK_SCORE
+        SELECT COUNT(*) AS FLAGGED, SUM(IFF(MAX_SEVERITY='HIGH',1,0)) AS HIGH,
+               ROUND(AVG(RISK_SCORE),2) AS AVG_RISK
         FROM TAX.V_GST_EXCEPTIONS
-    """).to_pandas()
+    """).to_pandas().iloc[0]
 
 
 @st.cache_data(ttl=600)
-def load_recon(status_filter):
-    where = ""
-    if status_filter != "All":
-        where = f"WHERE RECON_STATUS = '{status_filter}'"
-    return session.sql(f"""
-        SELECT ENTITY_NAME, TAX_PERIOD, COMPUTED_NET_GST, LODGED_NET_GST,
-               VARIANCE_NET, VARIANCE_PCT, RECON_STATUS
-        FROM TAX.V_GST_VS_BAS
-        {where}
-        ORDER BY ABS(VARIANCE_NET) DESC
-        LIMIT 500
-    """).to_pandas()
-
-
-@st.cache_data(ttl=600)
-def load_variance_by_entity():
+def score_histogram():
     return session.sql("""
-        SELECT ENTITY_NAME,
-               ROUND(SUM(ABS(VARIANCE_NET)), 2) AS TOTAL_ABS_VARIANCE
-        FROM TAX.V_GST_VS_BAS
-        GROUP BY ENTITY_NAME
-        ORDER BY TOTAL_ABS_VARIANCE DESC
+        SELECT FLOOR(RISK_SCORE/10)*10 AS BUCKET, MAX_SEVERITY, COUNT(*) AS N
+        FROM TAX.V_GST_EXCEPTIONS GROUP BY 1,2 ORDER BY 1
     """).to_pandas()
 
 
 @st.cache_data(ttl=600)
-def load_filter_values():
-    entities = session.sql("""
-        SELECT DISTINCT ENTITY_NAME FROM TAX.V_GST_EXCEPTIONS ORDER BY 1
-    """).to_pandas()["ENTITY_NAME"].tolist()
-    codes = session.sql("""
-        SELECT DISTINCT VALUE::VARCHAR AS EXCEPTION_CODE
-        FROM TAX.V_GST_EXCEPTIONS,
-             LATERAL FLATTEN(input =&gt; SPLIT(EXCEPTION_CODES, ', '))
-        ORDER BY 1
-    """).to_pandas()["EXCEPTION_CODE"].tolist()
-    return entities, codes
+def entities():
+    return session.sql(
+        "SELECT DISTINCT ENTITY_NAME FROM TAX.V_GST_EXCEPTIONS ORDER BY 1"
+    ).to_pandas()["ENTITY_NAME"].tolist()
 
 
 @st.cache_data(ttl=600)
-def load_exceptions(severity, entity, code, row_limit):
-    clauses = []
-    if severity != "All":
-        clauses.append(f"MAX_SEVERITY = '{severity}'")
-    if entity != "All":
-        clauses.append(f"ENTITY_NAME = '{entity}'")
-    if code != "All":
-        clauses.append(f"EXCEPTION_CODES LIKE '%{code}%'")
-    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
-    return session.sql(f"""
-        SELECT GL_LINE_ID, ENTITY_NAME, TAX_PERIOD, SOURCE_SYSTEM,
-               SUPPLIER_NAME, SUPPLY_CATEGORY, TAX_TREATMENT, APPLIED_RULE_ID,
-               NET_AMOUNT, BOOKED_TAX_AMOUNT, EXPECTED_TAX_AMOUNT, TAX_VARIANCE,
-               EXCEPTION_CODES, MAX_SEVERITY, RISK_SCORE
-        FROM TAX.V_GST_EXCEPTIONS
-        {where}
-        ORDER BY RISK_SCORE DESC
-        LIMIT {row_limit}
-    """).to_pandas()
+def severities():
+    """Severity levels that actually occur, ordered high to low.
+
+    Hardcoding HIGH/MEDIUM/LOW offered a LOW filter that returns an empty table,
+    because the rule set only ever lands on MEDIUM or HIGH. A dead filter option
+    reads as a broken app. Reading the levels from the data means the control
+    always matches reality, and a LOW option appears by itself if the rules ever
+    start producing one.
+    """
+    have = session.sql(
+        "SELECT DISTINCT MAX_SEVERITY FROM TAX.V_GST_EXCEPTIONS"
+    ).to_pandas()["MAX_SEVERITY"].tolist()
+    return [s for s in ("HIGH", "MEDIUM", "LOW") if s in have]
 
 
 @st.cache_data(ttl=600)
-def load_exception_summary(severity, entity, code):
-    clauses = []
-    if severity != "All":
-        clauses.append(f"MAX_SEVERITY = '{severity}'")
-    if entity != "All":
-        clauses.append(f"ENTITY_NAME = '{entity}'")
-    if code != "All":
-        clauses.append(f"EXCEPTION_CODES LIKE '%{code}%'")
-    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
-    return session.sql(f"""
-        SELECT COUNT(*)                                  AS FLAGGED_LINES,
-               ROUND(SUM(ABS(COALESCE(TAX_VARIANCE,0))),2) AS ABS_TAX_VARIANCE
-        FROM TAX.V_GST_EXCEPTIONS
-        {where}
-    """).to_pandas()
-
-
-@st.cache_data(ttl=600)
-def load_heatmap():
+def heatmap():
     return session.sql("""
-        SELECT ENTITY_NAME,
-               TO_VARCHAR(TAX_PERIOD, 'YYYY-MM') AS TAX_PERIOD,
-               COUNT(*)                          AS EXCEPTION_LINES
-        FROM TAX.V_GST_EXCEPTIONS
-        WHERE TAX_PERIOD IS NOT NULL
-        GROUP BY 1, 2
-        ORDER BY 1, 2
+        SELECT ENTITY_NAME, TO_VARCHAR(TAX_PERIOD,'YYYY-MM') AS P, COUNT(*) AS N
+        FROM TAX.V_GST_EXCEPTIONS WHERE TAX_PERIOD IS NOT NULL
+        GROUP BY 1,2 ORDER BY 1,2
     """).to_pandas()
 
 
-# ---------------------------------------------------------------------
-# Headline tiles
-# ---------------------------------------------------------------------
-st.title("GST Tax Control Tower")
-st.caption("Computed GST position, lodged BAS reconciliation and risk-ranked exception register.")
-
-h = load_headline().iloc[0]
-e = load_exception_headline().iloc[0]
-
-c1, c2, c3, c4, c5 = st.columns(5)
-c1.metric("Entity-periods", f"{int(h['ENTITY_PERIODS']):,}")
-c2.metric("Matched", f"{int(h['MATCHED']):,}")
-c3.metric("Investigate", f"{int(h['INVESTIGATE']):,}")
-c4.metric("Flagged lines", f"{int(e['FLAGGED_LINES']):,}")
-c5.metric("High severity", f"{int(e['HIGH_SEVERITY']):,}")
-
-st.divider()
-
-tab_recon, tab_exceptions, tab_heatmap = st.tabs(
-    ["BAS reconciliation", "Exception register", "Entity heatmap"]
-)
+@st.cache_data(ttl=600)
+def worklist(min_score, sev, entity, search, limit):
+    where = [f"RISK_SCORE &gt;= {int(min_score)}"]
+    if sev != "All":
+        where.append(f"MAX_SEVERITY = '{sev}'")
+    if entity != "All entities":
+        where.append(f"ENTITY_NAME = '{entity}'")
+    if search:
+        safe = search.replace("'", "''").upper()
+        where.append(f"(UPPER(SUPPLIER_NAME) LIKE '%{safe}%' OR UPPER(GL_LINE_ID) LIKE '%{safe}%')")
+    clause = "WHERE " + " AND ".join(where)
+    return session.sql(f"""
+        SELECT GL_LINE_ID, ENTITY_NAME, SUPPLIER_NAME, SUPPLY_CATEGORY,
+               TAX_TREATMENT, APPLIED_RULE_ID, TAX_VARIANCE, EXCEPTION_CODES,
+               MAX_SEVERITY, RISK_SCORE
+        FROM TAX.V_GST_EXCEPTIONS {clause}
+        ORDER BY RISK_SCORE DESC, ABS(TAX_VARIANCE) DESC
+        LIMIT {int(limit)}
+    """).to_pandas(), clause
 
 
-# ---------------------------------------------------------------------
-# Tab 1 - BAS reconciliation
-# ---------------------------------------------------------------------
-with tab_recon:
-    st.subheader("Computed GST against lodged BAS")
-
-    status = st.selectbox(
-        "Recon status",
-        ["All", "MATCHED", "REVIEW", "INVESTIGATE"],
-        key="recon_status",
-    )
-
-    st.markdown("**Total absolute variance by entity**")
-    st.bar_chart(
-        load_variance_by_entity().set_index("ENTITY_NAME"),
-        y="TOTAL_ABS_VARIANCE",
-        height=320,
-    )
-
-    recon = load_recon(status)
-    st.markdown(f"**Entity-periods, worst variance first** ({len(recon):,} shown)")
-    st.dataframe(
-        recon.style.format({
-            "COMPUTED_NET_GST": "{:,.2f}",
-            "LODGED_NET_GST": "{:,.2f}",
-            "VARIANCE_NET": "{:,.2f}",
-            "VARIANCE_PCT": "{:,.2f}",
-        }),
-        use_container_width=True,
-        height=420,
-    )
+@st.cache_data(ttl=600)
+def filtered_totals(clause):
+    return session.sql(f"""
+        SELECT COUNT(*) AS N, ROUND(SUM(ABS(COALESCE(TAX_VARIANCE,0))),2) AS ABS_VAR
+        FROM TAX.V_GST_EXCEPTIONS {clause}
+    """).to_pandas().iloc[0]
 
 
-# ---------------------------------------------------------------------
-# Tab 2 - Exception register
-# ---------------------------------------------------------------------
-with tab_exceptions:
-    st.subheader("Risk-ranked exception register")
+def txt(v):
+    """NULL-safe cell text for the hand-rolled table.
 
-    entities, codes = load_filter_values()
-
-    f1, f2, f3, f4 = st.columns(4)
-    severity = f1.selectbox("Severity", ["All", "HIGH", "MEDIUM", "LOW"], key="ex_sev")
-    entity = f2.selectbox("Entity", ["All"] + entities, key="ex_ent")
-    code = f3.selectbox("Exception code", ["All"] + codes, key="ex_code")
-    row_limit = f4.selectbox("Rows to return", [100, 250, 500, 1000], key="ex_rows")
-
-    summary = load_exception_summary(severity, entity, code).iloc[0]
-    s1, s2 = st.columns(2)
-    s1.metric("Flagged lines matching filters", f"{int(summary['FLAGGED_LINES']):,}")
-    s2.metric("Absolute tax variance", f"{float(summary['ABS_TAX_VARIANCE'] or 0):,.2f}")
-
-    st.caption(
-        "The register holds 253,394 flagged lines. It is always read "
-        "ORDER BY RISK_SCORE DESC with a row limit - the ranking is the point, "
-        "not the volume."
-    )
-
-    st.dataframe(
-        load_exceptions(severity, entity, code, row_limit),
-        use_container_width=True,
-        height=460,
-    )
+    Snowflake NULLs arrive as float nan through to_pandas(), and dropping one
+    straight into an f-string renders the literal string 'nan'. Unmapped GL
+    accounts genuinely have no supply category, so this is the common case
+    rather than an edge one. Values are escaped because they land in raw HTML.
+    """
+    if v is None or pd.isna(v):
+        return "&lt;span style='opacity:.5'&gt;&amp;mdash;&lt;/span&gt;"
+    return html.escape(str(v))
 
 
-# ---------------------------------------------------------------------
-# Tab 3 - Entity heatmap
-# ---------------------------------------------------------------------
-with tab_heatmap:
-    st.subheader("Exception count by entity and tax period")
+def money(v):
+    v = float(v or 0)
+    for cut, suf in ((1e9, "B"), (1e6, "M"), (1e3, "K")):
+        if abs(v) &gt;= cut:
+            return f"${v / cut:,.1f}{suf}"
+    return f"${v:,.0f}"
 
-    hm = load_heatmap()
-    pivot = hm.pivot(index="ENTITY_NAME", columns="TAX_PERIOD", values="EXCEPTION_LINES")
-    pivot = pivot.fillna(0).astype(int)
 
-    st.dataframe(
-        pivot.style.background_gradient(axis=None, cmap="Reds"),
-        use_container_width=True,
-        height=520,
-    )
+# =====================================================================
+# HEADER
+# =====================================================================
+rs = recon_summary()
+sc = ledger_scale()
+ex = exception_summary()
+total_periods = int(rs["N"].sum())
+investigate = int(rs.loc[rs.RECON_STATUS == "INVESTIGATE", "N"].sum())
+abs_var = float(rs["ABS_VAR"].sum())
+flagged = int(ex["FLAGGED"])
+stamp = datetime.now(timezone.utc).strftime("%d %b %Y %H:%M UTC")
 
-    st.caption(
-        "Dark cells are entity-periods carrying the most flagged lines. "
-        "Read down a column for a bad month across the group, and across "
-        "a row for an entity with a persistent problem."
-    )</code></pre></div>
+st.markdown(f"""
+&lt;div class="topbar"&gt;
+  &lt;div class="logo"&gt;&amp;#128202;&lt;/div&gt;
+  &lt;div style="flex:1"&gt;
+    &lt;div class="t-title"&gt;GST Control Tower&lt;/div&gt;
+    &lt;div class="t-meta"&gt;&lt;span class="dot"&gt;&lt;/span&gt;Live &amp;nbsp;&amp;middot;&amp;nbsp;
+      GSI_TAX_WORKSHOP.TAX &amp;nbsp;&amp;middot;&amp;nbsp; {int(sc['LINES']):,} ledger lines
+      &amp;nbsp;&amp;middot;&amp;nbsp; Streamlit on Snowflake &amp;nbsp;&amp;middot;&amp;nbsp; {stamp}&lt;/div&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+""", unsafe_allow_html=True)
 
-<div class="info-box"><span class="icon">🔑</span><div><strong>Why every query aggregates or limits</strong><p>The two views behind this app sit on 2,400,000 ledger lines and 253,394 flagged exceptions. Pull
-either of those into the browser row-level and the app stalls — and the user learns nothing, because
-nobody reads a quarter of a million rows. Every function above either aggregates in Snowflake and
-returns tens of rows, or ranks by <code>RISK_SCORE</code> and returns hundreds. The compute stays
-where the data is; only the answer travels.</p></div></div>
 
-<div class="info-box success"><span class="icon">⚡</span><div><strong>What you did not have to do</strong><p>There is no connection string, no credential, no driver, no <code>pip install</code>, no
-container, no web server and no deployment. <code>get_active_session()</code> returns the session
-you are already authenticated in, so the app inherits your role and therefore your data access —
-row access policies and masking policies continue to apply. <code>@st.cache_data(ttl=600)</code> on
-every query function means clicking through filters re-renders from cache rather than re-querying,
-so the warehouse can suspend while people are reading.</p></div></div>
+def kpi(label, value, sub, colour, pct):
+    return (f'&lt;div class="kpi"&gt;&lt;div class="kpi-l"&gt;{label}&lt;/div&gt;'
+            f'&lt;div class="kpi-v" style="color:{colour}"&gt;{value}&lt;/div&gt;'
+            f'&lt;div class="kpi-s"&gt;{sub}&lt;/div&gt;'
+            f'&lt;div class="kpi-track"&gt;&lt;div class="kpi-fill" '
+            f'style="width:{pct:.1f}%;background:{colour}"&gt;&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;')
 
-<h3>Block 2 — only if the app cannot see the objects</h3>
 
-<p>If the app loads but every tab reports that an object does not exist, the role running the app is
-not the role that built the objects. Run the grants below as
-<code>ACCOUNTADMIN</code>, substituting the role your app runs under, then reload the app.</p>
+st.markdown(
+    '&lt;div class="kpis"&gt;'
+    + kpi("Entity-periods reconciled", f"{total_periods:,}",
+          f"{int(sc['ENTITIES'])} entities across {int(sc['PERIODS'])} complete months",
+          BLUE, 100)
+    + kpi("Investigate", f"{investigate:,}",
+          "variance above the $1,000 threshold", RED,
+          100 * investigate / max(total_periods, 1))
+    + kpi("Flagged ledger lines", f"{flagged:,}",
+          f"avg risk score {float(ex['AVG_RISK']):.1f}", AMBER,
+          100 * flagged / max(int(sc["LINES"]), 1))
+    + kpi("Absolute variance", money(abs_var),
+          "computed against lodged BAS", GREEN, 100)
+    + "&lt;/div&gt;", unsafe_allow_html=True)
+
+
+# =====================================================================
+# FILTERS - native widgets, explicitly styled above so the text is legible
+# =====================================================================
+f1, f2, f3, f4 = st.columns([1, 1.4, 1.6, 1.1])
+sev = f1.selectbox("Severity", ["All"] + severities())
+entity = f2.selectbox("Entity", ["All entities"] + entities())
+min_score = f3.slider("Minimum risk score", 0, 100, 0, 5)
+search = f4.text_input("Search supplier or line", placeholder="e.g. Ridgeline")
+
+rows, clause = worklist(min_score, sev, entity, search, 150)
+tot = filtered_totals(clause)
+
+# =====================================================================
+# PANELS
+# =====================================================================
+left, right = st.columns([1, 1.25])
+
+SEV_COLOUR = {"MATCHED": GREEN, "REVIEW": AMBER, "INVESTIGATE": RED}
+
+with left:
+    bars = ""
+    top = int(rs["N"].max())
+    for status in ("MATCHED", "REVIEW", "INVESTIGATE"):
+        n = int(rs.loc[rs.RECON_STATUS == status, "N"].sum())
+        c = SEV_COLOUR[status]
+        bars += (
+            f'&lt;div class="brow"&gt;&lt;div class="brow-top"&gt;'
+            f'&lt;span&gt;&lt;span class="dot" style="background:{c};box-shadow:none"&gt;&lt;/span&gt;'
+            f'{status.title()}&lt;/span&gt;'
+            f'&lt;span&gt;&lt;b&gt;{n:,}&lt;/b&gt; &lt;span style="color:{MUTED}"&gt;&amp;middot; '
+            f'{100 * n / max(total_periods, 1):.1f}%&lt;/span&gt;&lt;/span&gt;&lt;/div&gt;'
+            f'&lt;div class="brow-track"&gt;&lt;div class="brow-fill" '
+            f'style="width:{100 * n / max(top, 1):.1f}%;background:{c}"&gt;&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;')
+    st.markdown(
+        f'&lt;div class="card"&gt;&lt;div class="card-h"&gt;'
+        f'&lt;span class="card-t"&gt;Reconciliation against lodged BAS&lt;/span&gt;'
+        f'&lt;span class="card-n"&gt;{total_periods:,} entity-periods&lt;/span&gt;&lt;/div&gt;'
+        f'{bars}&lt;div class="card-n" style="margin-top:6px"&gt;Matched means variance of '
+        f'exactly $0.00 &amp;mdash; not within tolerance, nil.&lt;/div&gt;&lt;/div&gt;',
+        unsafe_allow_html=True)
+
+with right:
+    hist = score_histogram()
+    grid = hist.pivot_table(index="BUCKET", columns="MAX_SEVERITY",
+                            values="N", aggfunc="sum").fillna(0)
+    buckets = list(range(0, 100, 10))
+    peak = max(int(grid.sum(axis=1).max()), 1)
+    W, H, PAD = 560, 250, 26
+    bw = (W - PAD) / len(buckets)
+    svg = [f'&lt;svg viewBox="0 0 {W} {H + 34}" width="100%" height="{H + 34}"&gt;']
+    for gl in (0, 0.5, 1):
+        y = H - gl * (H - PAD)
+        svg.append(f'&lt;line x1="{PAD}" y1="{y:.0f}" x2="{W}" y2="{y:.0f}" '
+                   f'stroke="#1B2942" stroke-width="1"/&gt;')
+        svg.append(f'&lt;text x="0" y="{y - 4:.0f}" fill="{MUTED}" font-size="10"&gt;'
+                   f'{int(peak * gl):,}&lt;/text&gt;')
+    for i, b in enumerate(buckets):
+        x = PAD + i * bw
+        stack = 0.0
+        for s, c in (("LOW", GREEN), ("MEDIUM", AMBER), ("HIGH", RED)):
+            n = float(grid.loc[b, s]) if (b in grid.index and s in grid.columns) else 0.0
+            if n &lt;= 0:
+                continue
+            h = (n / peak) * (H - PAD)
+            stack += h
+            svg.append(f'&lt;rect x="{x + 3:.1f}" y="{H - stack:.1f}" width="{bw - 6:.1f}" '
+                       f'height="{h:.1f}" fill="{c}" rx="2"&gt;&lt;title&gt;score {b}-{b + 9} '
+                       f'&amp;middot; {s} &amp;middot; {int(n):,} lines&lt;/title&gt;&lt;/rect&gt;')
+        svg.append(f'&lt;text x="{x + bw / 2:.0f}" y="{H + 15}" fill="{MUTED}" font-size="10" '
+                   f'text-anchor="middle"&gt;{b}&lt;/text&gt;')
+    svg.append(f'&lt;text x="{W / 2:.0f}" y="{H + 31}" fill="{MUTED}" font-size="10" '
+               f'text-anchor="middle"&gt;risk score&lt;/text&gt;&lt;/svg&gt;')
+    # Legend covers only the severities present in the chart. Listing a level
+    # with no bars invites the reader to hunt for a colour that is not there.
+    legend = "".join(
+        f'&lt;span style="margin-left:11px"&gt;&lt;span class="dot" style="background:{c};'
+        f'box-shadow:none"&gt;&lt;/span&gt;&lt;span style="color:{MUTED};font-size:.71rem"&gt;{s.title()}'
+        f'&lt;/span&gt;&lt;/span&gt;'
+        for s, c in (("HIGH", RED), ("MEDIUM", AMBER), ("LOW", GREEN))
+        if s in grid.columns and float(grid[s].sum()) &gt; 0)
+    # One transparent hit target per bucket, laid over the SVG. Carries the whole
+    # severity split in a single tooltip, which reads better than hovering each
+    # stacked segment in turn.
+    ov = ""
+    for i, b in enumerate(buckets):
+        parts, tot_b = [], 0
+        for s in ("HIGH", "MEDIUM", "LOW"):
+            n = int(grid.loc[b, s]) if (b in grid.index and s in grid.columns) else 0
+            tot_b += n
+            if n:
+                parts.append(f"{s.title()} {n:,}")
+        tip = f"score {b}&amp;ndash;{b + 9} &amp;middot; {tot_b:,} lines"
+        if parts:
+            tip += " &amp;middot; " + " &amp;middot; ".join(parts)
+        edge = "tip-r" if i &lt;= 1 else ("tip-l" if i &gt;= len(buckets) - 2 else "")
+        ov += (f'&lt;div class="hx-c {edge}" style="left:{100 * (PAD + i * bw) / W:.2f}%;'
+               f'width:{100 * bw / W:.2f}%;height:{100 * H / (H + 34):.2f}%" '
+               f'data-tip="{tip}"&gt;&lt;/div&gt;')
+    st.markdown(
+        f'&lt;div class="card" style="overflow:visible"&gt;&lt;div class="card-h"&gt;'
+        f'&lt;span class="card-t"&gt;Risk score distribution&lt;/span&gt;'
+        f'&lt;span class="card-n"&gt;10-point bins{legend}&lt;/span&gt;'
+        f'&lt;/div&gt;&lt;div class="hx"&gt;{"".join(svg)}{ov}&lt;/div&gt;&lt;/div&gt;', unsafe_allow_html=True)
+
+
+# =====================================================================
+# HEATMAP - entity x period, shaded with our own scale (no matplotlib)
+# =====================================================================
+hm = heatmap()
+piv = hm.pivot(index="ENTITY_NAME", columns="P", values="N").fillna(0).astype(int)
+hi = max(int(piv.to_numpy().max()), 1)
+# Endpoints for the legend. The shading itself is rank-based (see below).
+lo = int(piv.to_numpy().min())
+
+
+def rag(t):
+    """Green-amber-red ramp for a 0..1 position in the observed range.
+
+    The scale is comparative, not absolute. Every entity-period carries a few
+    hundred flagged lines, so green means "quietest month in this population",
+    never "clean" - which is why the caption says fewest rather than good. A
+    reviewer who reads green as clean would draw exactly the wrong conclusion.
+    """
+    stops = ((0.0, (78, 216, 160)), (0.5, (232, 178, 58)), (1.0, (247, 107, 124)))
+    for (t0, c0), (t1, c1) in zip(stops, stops[1:]):
+        if t &lt;= t1:
+            f = (t - t0) / (t1 - t0)
+            return tuple(round(a + (b - a) * f) for a, b in zip(c0, c1))
+    return stops[-1][1]
+
+
+periods = list(piv.columns)
+# Shade by rank within the grid, not by linear position in the range. The
+# distribution is left-skewed - the median entity-period sits at 0.73 of the
+# range - so a linear ramp puts three quarters of the grid in the red and the
+# whole thing reads as one alarming block with no signal in it. Ranking spends
+# the full green-to-red spread on the ordering that matters. The caption says
+# "by rank" for exactly this reason: green is the quietest cell here, not a
+# clean one, and a reviewer must not read it as clean.
+flat = sorted(int(v) for v in piv.to_numpy().ravel())
+
+
+def pct(n):
+    """Position of n in the observed distribution, 0..1, ties averaged."""
+    a, b = bisect.bisect_left(flat, n), bisect.bisect_right(flat, n)
+    return ((a + b - 1) / 2) / max(len(flat) - 1, 1)
+
+
+median = flat[len(flat) // 2]
+cells = ""
+for ent in piv.index:
+    cells += f'&lt;div class="hm-lbl"&gt;{html.escape(str(ent))}&lt;/div&gt;'
+    for i, p in enumerate(periods):
+        n = int(piv.loc[ent, p])
+        r, g, b = rag(pct(n))
+        edge = "tip-r" if i &lt;= 1 else ("tip-l" if i &gt;= len(periods) - 2 else "")
+        cells += (f'&lt;div class="hm-c {edge}" style="background:rgb({r},{g},{b})" '
+                  f'data-tip="{html.escape(str(ent))} &amp;middot; {p} &amp;middot; '
+                  f'{n:,} flagged lines"&gt;&lt;/div&gt;')
+ramp = "".join(
+    f'&lt;span style="display:inline-block;width:15px;height:9px;background:'
+    f'rgb{rag(i / 6)};border-radius:2px;margin-left:2px"&gt;&lt;/span&gt;' for i in range(7))
+st.markdown(
+    f'&lt;div class="card" style="margin-top:14px;overflow:visible"&gt;'
+    f'&lt;div class="card-h"&gt;&lt;span class="card-t"&gt;Flagged lines by entity and period'
+    f'&lt;/span&gt;&lt;span class="card-n"&gt;{len(piv.index)} entities &amp;times; {len(periods)} '
+    f'periods &amp;middot; hover a cell for detail&lt;br&gt;fewest {lo:,}{ramp} most {hi:,}'
+    f' &amp;middot; shaded by rank &amp;middot; median {median:,}&lt;/span&gt;&lt;/div&gt;'
+    f'&lt;div class="hm" style="grid-template-columns:150px repeat({len(periods)},1fr)"&gt;'
+    f'{cells}&lt;/div&gt;&lt;/div&gt;', unsafe_allow_html=True)
+
+
+# =====================================================================
+# WORKLIST - rendered as our own table, so no st.dataframe theming fight
+# =====================================================================
+PILL = {"HIGH": (RED, "rgba(247,107,124,.14)"),
+        "MEDIUM": (AMBER, "rgba(232,178,58,.14)"),
+        "LOW": (GREEN, "rgba(78,216,160,.14)")}
+body = ""
+for _, r in rows.iterrows():
+    fg, bg = PILL.get(r.MAX_SEVERITY, (MUTED, "rgba(138,155,176,.14)"))
+    var = float(r.TAX_VARIANCE or 0)
+    body += (
+        f"&lt;tr&gt;&lt;td style='font-family:ui-monospace,Menlo,monospace;color:{MUTED}'&gt;"
+        f"{txt(r.GL_LINE_ID)}&lt;/td&gt;&lt;td&gt;{txt(r.ENTITY_NAME)}&lt;/td&gt;&lt;td&gt;{txt(r.SUPPLIER_NAME)}&lt;/td&gt;"
+        f"&lt;td style='color:{MUTED}'&gt;{txt(r.SUPPLY_CATEGORY)}&lt;/td&gt;&lt;td&gt;{txt(r.TAX_TREATMENT)}&lt;/td&gt;"
+        f"&lt;td class='num' style='color:{MUTED}'&gt;{txt(r.APPLIED_RULE_ID)}&lt;/td&gt;"
+        # Direction matters to a tax reviewer: under-declared GST is ATO
+        # exposure, over-declared is the firm's own money sitting with the ATO.
+        f"&lt;td class='num' style='color:{RED if var &lt; 0 else AMBER}'&gt;{var:,.2f}&lt;/td&gt;"
+        f"&lt;td style='color:{MUTED};font-size:.72rem'&gt;{txt(r.EXCEPTION_CODES)}&lt;/td&gt;"
+        f"&lt;td&gt;&lt;span class='pill' style='color:{fg};background:{bg}'&gt;{r.MAX_SEVERITY}&lt;/span&gt;&lt;/td&gt;"
+        f"&lt;td class='num'&gt;&lt;b&gt;{int(r.RISK_SCORE)}&lt;/b&gt;&lt;/td&gt;&lt;/tr&gt;")
+
+st.markdown(
+    f'&lt;div class="card" style="margin-top:14px"&gt;&lt;div class="card-h"&gt;'
+    f'&lt;span class="card-t"&gt;Exception worklist&lt;/span&gt;'
+    f'&lt;span class="card-n"&gt;{int(tot["N"]):,} lines match &amp;middot; '
+    f'{money(tot["ABS_VAR"])} absolute variance &amp;middot; showing top {len(rows)} '
+    f'by risk&lt;/span&gt;&lt;/div&gt;'
+    '&lt;table class="tt"&gt;&lt;thead&gt;&lt;tr&gt;'
+    '&lt;th&gt;GL line&lt;/th&gt;&lt;th&gt;Entity&lt;/th&gt;&lt;th&gt;Supplier&lt;/th&gt;&lt;th&gt;Category&lt;/th&gt;'
+    '&lt;th&gt;Treatment&lt;/th&gt;&lt;th class="num"&gt;Rule&lt;/th&gt;&lt;th class="num"&gt;Variance&lt;/th&gt;'
+    '&lt;th&gt;Codes&lt;/th&gt;&lt;th&gt;Severity&lt;/th&gt;&lt;th class="num"&gt;Risk&lt;/th&gt;'
+    f'&lt;/tr&gt;&lt;/thead&gt;&lt;tbody&gt;{body}&lt;/tbody&gt;&lt;/table&gt;&lt;/div&gt;', unsafe_allow_html=True)
+
+st.markdown(
+    f'&lt;div style="color:{MUTED};font-size:.72rem;margin-top:14px;text-align:center"&gt;'
+    'Every figure traces back to a rule row in &lt;code&gt;TAX.TAX_RULE_DETERMINATION&lt;/code&gt; '
+    'and a source document reference. Compute stays where the data is; only the '
+    'answer travels.&lt;/div&gt;', unsafe_allow_html=True)</code></pre></div>
+
+<div class="beat" data-beat="prove">
+<h3>Read it like a tax reviewer</h3>
+
+<ol>
+    <li><strong>Reconciliation panel.</strong> Matched means the computed net GST equals the lodged
+        figure to the cent &mdash; not within tolerance, nil. Everything in Investigate is a period
+        where the group filed a number the ledger does not support.</li>
+    <li><strong>Heatmap.</strong> Hover any cell for the entity, the period and the flagged line
+        count. Read down a column for a bad month across the group, and across a row for an entity
+        with a standing problem.</li>
+    <li><strong>Worklist.</strong> Drag <em>Minimum risk score</em> up to 80. The register collapses
+        to the lines worth a reviewer's morning, and the match count and absolute variance in the
+        panel header move with it because both are recomputed in Snowflake, not filtered in the
+        browser.</li>
+    <li><strong>Search.</strong> Type a supplier name to pull every flagged line for that vendor
+        across all entities and periods &mdash; the question a client asks when a supplier
+        relationship is under review.</li>
+</ol>
+</div>
+
+<div class="info-box warning"><span class="icon">&#127752;</span><div><strong>Green means fewest, not clean</strong><p>The heatmap is shaded by rank within the grid, so green is the quietest entity-period
+<em>in this population</em> &mdash; every cell still carries a few hundred flagged lines. The
+distribution is skewed enough that shading by absolute value would put three quarters of the grid in
+the red and hide the ordering that matters. Worth saying out loud in a client session, because a
+reviewer who reads green as clean draws exactly the wrong conclusion.</p></div></div>
+
+<div class="info-box success"><span class="icon">&#9889;</span><div><strong>What you did not have to do</strong><p>No connection string, no credential, no driver, no <code>pip install</code>, no container, no web
+server, no deployment. <code>get_active_session()</code> returns the session you are already
+authenticated in, so the app inherits your role and therefore your data access &mdash; row access
+and masking policies keep applying. <code>@st.cache_data(ttl=600)</code> on every query function
+means clicking through filters re-renders from cache rather than re-querying, so the warehouse can
+suspend while people are reading.</p></div></div>
+
+<div class="info-box" data-surface="guide"><span class="icon">&#128295;</span><div><strong>Why the theme sets every foreground colour explicitly</strong><p>Forcing a dark background is the easy half. Streamlit's own widgets still default to the light
+theme's dark text, which is invisible against it, so the app sets label, input and dropdown colours
+explicitly rather than relying on inheritance. The selector list looks redundant on purpose: the
+warehouse runtime ships an older Streamlit build whose select widgets are rendered with BaseWeb,
+while a current local install renders them with react-aria and exposes different attributes
+entirely. Targeting both is what keeps the dashboard dark wherever it lands. Anything you theme by
+injected CSS is coupled to Streamlit's internals, so it is worth opening a newly deployed app once
+rather than assuming.</p></div></div>
+
+<h3>If the app cannot see the objects</h3>
+
+<p>If the app loads but every panel reports that an object does not exist, the role running the app
+is not the role that built the objects. Run the grants below as <code>ACCOUNTADMIN</code>,
+substituting the role your app runs under, then reload the app.</p>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- Substitute the role the Streamlit app runs under.
 SET app_role = 'SYSADMIN';
@@ -305,6 +692,6 @@ GRANT SELECT ON ALL TABLES          IN SCHEMA GSI_TAX_WORKSHOP.RAW_DATA TO ROLE 
 
 GRANT USAGE  ON WAREHOUSE GSI_TAX_WH TO ROLE IDENTIFIER($app_role);</code></pre></div>
 
-<div class="info-box success"><span class="icon">✅</span><div><strong>Where you are</strong><p>The same two views that produced a results grid in Step 5 are now a filterable application with
-headline tiles, a variance chart, a risk-ranked register and a heatmap — built in one file, running
-next to the data, and shareable with a URL. This is the visual payoff of the whole lab.</p></div></div>
+<div class="info-box success"><span class="icon">&#9989;</span><div><strong>The same two views, now an application</strong><p>Live KPI tiles, a reconciliation panel, a risk distribution, an entity heatmap and a filterable
+worklist &mdash; one file, running next to the data, shareable with a URL. No web server, no
+separate hosting, and no copy of the ledger anywhere.</p></div></div>

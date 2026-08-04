@@ -16,19 +16,78 @@ BUILD = ROOT / "_build"
 TEMPLATE = pathlib.Path.home() / "Documents/COCO/HOL/fsi_generic/fsi_workshop_lab1_foundation.html"
 
 CFG = {
+    # The setup notebook has no HTML guide of its own - "out" is only the link
+    # target the notebook points at for architecture background, and the
+    # consolidated guide owns that. build.py deliberately does NOT run
+    # assemble() for this key; it only emits the notebook.
+    "setup": {
+        "out": "gsi_tax_workshop_index.html",
+        "title": "Lab Setup — GST Analytics on Snowflake",
+        "badge": "Setup",
+        "hero_title": "Workshop Setup: Build the Foundation",
+        "hero_sub": "One run, about 75 seconds, and both labs have the layered tax platform and 2.4 million ledger lines they need.",
+        "duration": "5 min, run once",
+        "difficulty": "Run before the workshop",
+        "storage": "workshop_gsi_tax_setup_progress",
+        "core": 4,
+        "footer_line": "GST Analytics &amp; AI on Snowflake for Global Solution Integrators &middot; Setup",
+        "build": [
+            ("Create the platform and the reference data", "2 min"),
+            ("Generate the three ERP extracts", "2 min"),
+            ("Load the tax rules, lodged BAS and invoices", "1 min"),
+            ("Verify the foundation", "1 min"),
+        ],
+        "whatyoubuild": [
+            "Create <code>GSI_TAX_WH</code>, the <code>GSI_TAX_WORKSHOP</code> database and the seven schemas that separate raw landing from conformance, tax logic and AI output.",
+            "Generate 2,400,000 general ledger lines across three deliberately incompatible ERP extracts.",
+            "Load the tax rule tables, the lodged BAS history and 300 invoice documents.",
+            "Verify every object and row count before the labs begin.",
+        ],
+        "tech": ["Snowflake SQL", "Seeded generation", "Schema design"],
+        "usecase": "Both labs work on the same synthetic Australian group: three general ledgers inherited from a decade of acquisitions. This notebook builds that world once so the labs can start on the interesting part.",
+    },
+    # Utility notebook, not a lab. Like "setup", it has no HTML guide of its own
+    # and build.py does not run assemble() for it. Sections are ordered least to
+    # most destructive so a reader working downwards escalates deliberately.
+    "reset": {
+        "out": "gsi_tax_workshop_index.html",
+        "title": "Reset the Workshop — GST Analytics on Snowflake",
+        "badge": "Reset",
+        "hero_title": "Reset the Workshop",
+        "hero_sub": "Clear Lab 2, clear Lab 1, or tear the whole thing down — run only the section you need.",
+        "duration": "under 1 min",
+        "difficulty": "Run any time",
+        "storage": "workshop_gsi_tax_reset_progress",
+        "core": 4,
+        "footer_line": "GST Analytics &amp; AI on Snowflake for Global Solution Integrators &middot; Reset",
+        "build": [
+            ("Reset Lab 2 only, keep the ledger", "20 sec"),
+            ("Reset Lab 1, keep the generated data", "20 sec"),
+            ("Drop everything", "20 sec"),
+            ("Verify what is left", "10 sec"),
+        ],
+        "whatyoubuild": [
+            "Clear Lab 2's eight views, semantic view, AI Dynamic Table and agent without touching the 2.4 million row ledger.",
+            "Clear Lab 1's conformed ledger, views, audit snapshots and share while keeping everything setup generated.",
+            "Undo the two non-idempotent operations in Lab 1 so a re-run behaves like a first run.",
+            "Tear down both labs, the setup data and the warehouse in four statements.",
+        ],
+        "tech": ["Snowflake SQL", "RESULT_SCAN", "Idempotent teardown"],
+        "usecase": "Rebuilding 2.4 million ledger lines to re-test one AI function wastes a morning. This notebook resets the smallest thing that gets you back to a clean state.",
+    },
     "lab1": {
         "out": "gsi_tax_workshop_lab1_foundation.html",
         "title": "Lab 1 · Tax Data Foundation — GST Analytics on Snowflake",
         "badge": "Lab 1 of 2",
         "hero_title": "Tax Data Foundation: Raw to Return-Ready",
         "hero_sub": "Three incompatible ERP extracts, 2.4 million ledger lines, one governed GST position — and an audit trail you can reproduce on demand.",
-        "duration": "60 min core + 28 min optional",
+        "duration": "57 min core + 28 min optional",
         "difficulty": "Beginner &rarr; Intermediate",
         "storage": "workshop_gsi_tax_lab1_progress",
         "core": 5,
         "footer_line": "GST Analytics &amp; AI on Snowflake for Global Solution Integrators &middot; Lab 1 of 2",
         "build": [
-            ("Land the raw data and look around", "8 min"),
+            ("Verify the foundation and look around", "5 min"),
             ("Prove you cannot answer the question", "8 min"),
             ("Conform three ERPs into one governed ledger", "14 min"),
             ("The tax rules layer", "15 min"),
@@ -38,7 +97,7 @@ CFG = {
             ("Share the snapshot with the auditor", "6 min"),
         ],
         "whatyoubuild": [
-            "Load three deliberately incompatible ERP extracts — 2,400,000 general ledger lines — with one paste-and-run script.",
+            "Inspect the three deliberately incompatible ERP extracts — 2,400,000 general ledger lines — exactly as they landed.",
             "Prove in three queries that the group GST position is currently unanswerable, and quantify exactly why.",
             "Conform all three systems into <code>CURATED.GL_HARMONISED</code>, a Dynamic Table that maintains itself and contains no tax logic.",
             "Build the tax rules layer as data the tax team owns: a decision table, effective-dated rates, and thin generic SQL that applies them.",

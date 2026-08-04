@@ -26,7 +26,79 @@ from assemble import CFG
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 BUILD = ROOT / "_build"
 
-NB_OUT = {"lab1": "gsi_tax_lab1_foundation.ipynb", "lab2": "gsi_tax_lab2_cortex_ai.ipynb"}
+NB_OUT = {
+    "setup": "gsi_tax_lab0_setup.ipynb",
+    "lab1": "gsi_tax_lab1_foundation.ipynb",
+    "lab2": "gsi_tax_lab2_cortex_ai.ipynb",
+    "reset": "gsi_tax_reset.ipynb",
+}
+
+# ---------------------------------------------------------------------------
+# ORIENTATION
+#
+# One stage name per core step, so the reader can see where the current step
+# sits in the arc with no mapping table: stage index == step - 1 for core steps.
+# len(stages) must equal cfg["core"]; build.py asserts it. Optional steps are
+# labelled as extensions instead of being forced onto the arc.
+# ---------------------------------------------------------------------------
+STAGES = {
+    "setup": ["Architecture", "Load", "Rules", "Verify"],
+    "lab1": ["Inspect", "Diagnose", "Conform", "Determine", "Reconcile"],
+    "lab2": ["Verify", "Classify", "Extract", "Draft", "Ask"],
+    "reset": ["Lab 2 only", "Lab 1 only", "Everything", "Verify"],
+}
+
+# ---------------------------------------------------------------------------
+# VALUE LEDGER
+#
+# What the tax practice can do that it could not before, and the step that
+# earned it. Rendered only at the milestone steps in LEDGER_AT - a checklist
+# repeated after every step becomes furniture people skim past.
+#
+# Each list must reach a complete state at the last core step, so anyone who
+# stops at the end of core sees a finished ledger, not a half-done one.
+# ---------------------------------------------------------------------------
+LEDGER = {
+    "lab1": [
+        (1, "see all three ERP extracts side by side, unmodified"),
+        (2, "show exactly why the group GST position cannot be answered today"),
+        (3, "query 2,400,000 lines as one governed ledger that maintains itself"),
+        (4, "read the entire determination logic without reading SQL"),
+        (5, "reconcile the computed position against what was actually lodged"),
+        (5, "reproduce any prior filing on demand, and prove nothing moved"),
+    ],
+    "lab2": [
+        (2, "read a supply category out of a free-text invoice narrative"),
+        (3, "pull ABNs and GST wording out of unstructured remarks"),
+        (4, "draft a defensible working paper for every exception"),
+        (5, "answer a partner's question in plain English, with the SQL shown"),
+        (5, "hand the tax team a governed way to ask their own questions"),
+    ],
+}
+LEDGER_AT = {"lab1": [2, 5, 8], "lab2": [3, 5, 9]}
+
+
+def ledger_md(lab, upto):
+    """Render the value ledger, ticking everything earned by step `upto`."""
+    rows = [
+        "> - [%s] %s%s" % (
+            "x" if step <= upto else " ",
+            text,
+            " \u2014 *Step %d*" % step if step <= upto else "",
+        )
+        for step, text in LEDGER[lab]
+    ]
+    return "> **What the tax practice can do now**\n>\n" + "\n".join(rows)
+
+
+def step_orientation(lab, step, cfg):
+    """The 'where am I' line that sits under a step heading."""
+    stages = STAGES.get(lab, [])
+    if step <= cfg["core"] and len(stages) == cfg["core"]:
+        return " \u2192 ".join(
+            ("**%s**" % s) if i == step - 1 else s for i, s in enumerate(stages)
+        )
+    return "*Optional extension \u2014 the core flow is complete without this.*"
 
 # ---------------------------------------------------------------------------
 # EDITORIAL SPLIT POLICY  ("split only where each result matters")
@@ -56,17 +128,34 @@ SPLIT = {
 }
 
 INTRO = {
+    "setup": (
+        "Run this once before the workshop. It builds the environment and generates the "
+        "data both labs work on, which takes about 75 seconds on a SMALL warehouse.\n\n"
+        "**Before you start**, set the notebook's role to `SYSADMIN` and pick any warehouse. "
+        "Cell 1 creates `GSI_TAX_WH` and switches to it.\n\n"
+        "Nothing here is throwaway. The four cells build the layered architecture the labs "
+        "then use, so it is worth reading what each one creates and why."
+    ),
     "lab1": (
         "Work through the cells top to bottom. Every SQL cell is ready to run - "
         "there is nothing to copy or paste.\n\n"
-        "**Before you start**, set the notebook's role to `SYSADMIN` and pick any warehouse. "
-        "Cell 1 creates `GSI_TAX_WH` and switches to it."
+        "**Before you start**, run `gsi_tax_lab0_setup.ipynb` if you have not already. "
+        "Set this notebook's role to `SYSADMIN` and the warehouse to `GSI_TAX_WH`. "
+        "Step 1 verifies the foundation is present before you go any further."
     ),
     "lab2": (
         "This lab depends on the objects you built in Lab 1. Run the verification cell first - "
         "if anything is missing, go back and finish Lab 1.\n\n"
         "**Before you start**, you need the `SNOWFLAKE.CORTEX_USER` database role. "
         "Set the notebook role to `SYSADMIN` and the warehouse to `GSI_TAX_WH`."
+    ),
+    "reset": (
+        "**Run only the section you need. Do not use Run All** - section 3 drops the entire "
+        "workshop, and on a Run All it would fire straight after the two partial resets.\n\n"
+        "The sections are ordered least to most destructive. Every statement uses `IF EXISTS`, so "
+        "each one is safe to run twice and safe against a half-built environment.\n\n"
+        "**Before you start**, set the notebook's role to `SYSADMIN` and the warehouse to "
+        "`GSI_TAX_WH`. If the warehouse has already been dropped, pick any other warehouse."
     ),
 }
 
@@ -120,14 +209,15 @@ def prep_python(code):
     """
     stripped = re.sub(r"^st\.set_page_config\([^)]*\)\s*\n", "", code, flags=re.M)
     note = (
-        "# Streamlit app code. Run this cell to preview the app inline, or paste it\n"
-        "# into Projects -> Streamlit to deploy it standalone (add st.set_page_config\n"
-        "# back at the top when you do).\n"
+        "# The control tower app. This is the file to paste into Projects -> Streamlit\n"
+        "# (add st.set_page_config back at the top when you do). Running the cell here\n"
+        "# renders the dashboard inline, but its theme assumes a full page, so the\n"
+        "# deployed app is the one to look at.\n"
     )
     return note + stripped
 
 
-def build(lab, mode="tight"):
+def build(lab, mode="auto"):
     cfg = {k: (html.unescape(v) if isinstance(v, str) else v) for k, v in CFG[lab].items()}
     html_guide = cfg["out"]
     cells = [
@@ -137,8 +227,9 @@ def build(lab, mode="tight"):
             f"**{cfg['badge']}** \u00b7 {cfg['duration']} \u00b7 {cfg['difficulty']}\n\n"
             f"{cfg['hero_sub']}\n\n"
             f"{INTRO[lab]}\n\n"
-            f"> Full narrative, expected results and architecture notes: **`{html_guide}`** "
-            f"— keep it open alongside this notebook.\n\n"
+            f"> Architecture, the business process behind it and how the notebooks fit "
+            f"together: **`{html_guide}`**. You do not need it open to work through this "
+            f"notebook - everything you need to run and interpret each step is here.\n\n"
             "---\n\n"
             "> \u26a0\ufe0f **Synthetic data**\n>\n"
             "> All data in this workshop is synthetically generated for training purposes. "
@@ -155,17 +246,25 @@ def build(lab, mode="tight"):
         cells.append(
             md_cell(
                 f"step{step}_header",
-                f"---\n\n## Step {step} \u2014 {title}\n\n"
+                f"---\n\n## Step {step} of {len(cfg['build'])} \u2014 {title}\n\n"
+                f"{step_orientation(lab, step, cfg)}\n\n"
                 f"*~{mins}{optional}* \u00b7 "
-                f"[narrative & expected results]({html_guide}#step-{step})",
+                f"[architecture & background]({html_guide}#step-{step})",
             )
         )
 
         block_no = 0
         prose_no = 0
-        for kind, payload in nbutil.parse_fragment(frag.read_text()):
+        frag_text = frag.read_text()
+        # Decide the mode once per FRAGMENT, not per prose chunk. A fragment on
+        # the beat contract is authored to length throughout, so condensing some
+        # of its chunks and not others would read inconsistently.
+        frag_mode = mode
+        if mode == "auto":
+            frag_mode = "full" if 'data-beat="' in frag_text else "tight"
+        for kind, payload in nbutil.parse_fragment(frag_text):
             if kind == "prose":
-                chunks = nbutil.html_to_md(payload, mode=mode)
+                chunks = nbutil.html_to_md(payload, mode=frag_mode)
                 if not chunks:
                     continue
                 prose_no += 1
@@ -185,6 +284,9 @@ def build(lab, mode="tight"):
                     cells.append(
                         code_cell(f"step{step}_block{block_no}{suffix}", lang, src)
                     )
+
+        if step in LEDGER_AT.get(lab, []):
+            cells.append(md_cell(f"step{step}_ledger", ledger_md(lab, step)))
 
     for c in cells:
         c["source"] = [l + "\n" for l in c["source"].split("\n")[:-1]] + [
@@ -220,9 +322,9 @@ def build(lab, mode="tight"):
 
 if __name__ == "__main__":
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    mode = "full" if "--full" in sys.argv else "tight"
+    mode = "full" if "--full" in sys.argv else "auto"
     arg = args[0] if args else "all"
-    labs = ["lab1", "lab2"] if arg == "all" else [arg]
+    labs = ["setup", "lab1", "lab2"] if arg == "all" else [arg]
     for lab in labs:
         name, total, md, sql, py, words = build(lab, mode=mode)
         print(

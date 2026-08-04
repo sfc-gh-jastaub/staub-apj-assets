@@ -1,15 +1,21 @@
-<p>A partner puts a question to you that any client would ask: <strong>what was the group's GST
-payable for the last full quarter, by entity?</strong> It is a completely reasonable question.
-Right now it is unanswerable. The job of this step is to prove that in three queries, not to
-catalogue every flaw in the data.</p>
+<div class="beat" data-beat="business">
+<p><strong>The question the partner actually asks.</strong> <em>What was the group's GST payable for the
+last full quarter, by entity?</em> It is a completely reasonable question, and right now it is
+unanswerable. This step proves that in three queries rather than cataloguing every flaw in the
+data.</p>
+</div>
 
 <h3>The plausible wrong answer</h3>
 
-<p>SAP is the biggest of the three systems and the one the group thinks of as the general ledger.
-Answer the question against SAP alone.</p>
+<p>SAP is the biggest of the three systems and the one the group thinks of as <em>the</em> general
+ledger. Answer the question against SAP alone.</p>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- The partner's question, answered against SAP alone.
 -- GST booked by company code for the last three complete months.
+--
+-- The window is pinned to the dataset's as-of date rather than CURRENT_DATE().
+-- The ledger ends 2026-07-31, so a relative window would silently start losing
+-- months as real time moves on, and every figure quoted below would drift.
 SELECT
     g.BUKRS                    AS SAP_COMPANY_CODE,
     e.ENTITY_NAME,
@@ -18,16 +24,16 @@ SELECT
 FROM RAW_DATA.ERP_SAP_GL g
 LEFT JOIN RAW_DATA.DIM_LEGAL_ENTITY e
        ON e.SAP_BUKRS = g.BUKRS
-WHERE TRY_TO_DATE(g.BUDAT, 'YYYYMMDD') &gt;= DATEADD('month', -3, DATE_TRUNC('month', CURRENT_DATE()))
-  AND TRY_TO_DATE(g.BUDAT, 'YYYYMMDD') &lt;  DATE_TRUNC('month', CURRENT_DATE())
+WHERE TRY_TO_DATE(g.BUDAT, 'YYYYMMDD') &gt;= DATEADD('month', -3, '2026-08-01'::DATE)
+  AND TRY_TO_DATE(g.BUDAT, 'YYYYMMDD') &lt;  '2026-08-01'::DATE
 GROUP BY 1, 2
 ORDER BY GST_BOOKED_AUD DESC;</code></pre></div>
 
 <p>That returns in about a second: a clean, confident, formatted number per company code, with
-<strong>96,025 ledger lines scanned</strong> and <strong>$176,904,538</strong> of GST across
+<strong>94,947 ledger lines scanned</strong> and <strong>$174,806,895</strong> of GST across
 <strong>12 rows</strong>.</p>
 
-<div class="info-box success"><span class="icon">&#128200;</span><div><strong>The scale moment</strong><p><code>ERP_SAP_GL</code> holds 1,200,000 rows. Microsoft Excel stops at 1,048,576 &mdash; one of
+<div class="info-box success"><span class="icon">&#128200;</span><div><strong>One of your source systems will not open in Excel</strong><p><code>ERP_SAP_GL</code> holds 1,200,000 rows. Microsoft Excel stops at 1,048,576 &mdash; one of
 your three source systems, on its own, will not open in the tool your team uses today. That
 aggregate scanned the whole table on the smallest warehouse Snowflake sells, with no index, no
 tuning and no preparation of any kind.</p></div></div>
@@ -37,7 +43,7 @@ SAP at all &mdash; Marrickville Food Co and Nullarbor Freight are booked in Orac
 legacy system. Nothing in the result grid says so. A number that is confidently wrong and gives
 no indication that it is wrong is the single most dangerous artefact in tax reporting.</p></div></div>
 
-<div class="info-box"><span class="icon">&#128269;</span><div><strong>Free platform moment &mdash; no query needed</strong><p>With those results still on screen, click a column header in the Snowsight results pane. Snowsight
+<div class="info-box"><span class="icon">&#128269;</span><div><strong>Profile a column without writing a query</strong><p>With those results still on screen, click a column header in the Snowsight results pane. Snowsight
 shows the value distribution, the null count and the distinct count for that column immediately.
 If you profile columns by hand in a spreadsheet or a workflow tool today, that is the whole job
 done in one click.</p></div></div>
@@ -67,9 +73,9 @@ extracts up by position, and there are four separate reasons why.</p>
 
 <ul class="learning-list">
 <li><strong>Date types.</strong> One column is a real <code>DATE</code>; the other two are text in
-two different conventions. <code>20250513</code> and <code>13/05/2025</code> cannot be compared,
-sorted or filtered against each other until both are parsed, and roughly 2% of the legacy dates
-are not valid dates at all.</li>
+two different conventions. <code>20250528</code> and <code>02/02/2024</code> &mdash; the two you just
+saw in Step 1 &mdash; cannot be compared, sorted or filtered against each other until both are parsed,
+and roughly 2% of the legacy dates are not valid dates at all.</li>
 <li><strong>Amount conventions.</strong> SAP posts one signed GST-exclusive figure. Oracle posts
 unsigned amounts split across a debit column and a credit column, one of which is always null.
 The legacy system posts a single unsigned GST-inclusive figure, so the taxable value has to be
@@ -141,8 +147,8 @@ WHERE SAP_BUKRS IS NULL OR ORACLE_LEDGER_ID IS NULL OR LEGACY_ENTITY_CD IS NULL
 
 ORDER BY AFFECTED DESC;</code></pre></div>
 
-<p>Expect results close to these. The exact figures move slightly because the transaction window
-extends to the current date.</p>
+<p>Expect exactly these figures. The data is generated from seeded random values over a fixed date
+window, so the numbers on your screen match the numbers here.</p>
 
 <table class="data-table">
 <thead><tr><th>Issue</th><th>Affected</th><th>Percentage</th><th>Population</th></tr></thead>
@@ -155,16 +161,20 @@ extends to the current date.</p>
 </tbody>
 </table>
 
-<p>Read the first row out loud. <strong>77,484 ledger lines carry an account code that nobody has
-mapped.</strong> Those lines have no supply category, so no rule can reach them, so their GST
-treatment is unknown. That is not a data hygiene footnote; it is an unquantified position in a
-lodged return.</p>
+<div class="beat" data-beat="prove">
+<p><strong>77,484 ledger lines carry an account code nobody has mapped.</strong> Those lines have no
+supply category, so no rule can reach them, so their GST treatment is unknown. That is not a data
+hygiene footnote &mdash; it is an unquantified position in a lodged return.</p>
+<p><em>Snowflake: five defect measures over all 2,400,000 lines plus the supplier and entity masters,
+in one query, on the smallest warehouse available. No sampling and no extract.</em></p>
+</div>
 
+<div data-surface="guide">
 <h3>The full defect inventory</h3>
 
-<p>The scorecard covers the defects that block the question outright. These are all of them,
-including the ones that only become visible once the ledger is conformed and the rules are
-applied in the next three steps.</p>
+<p>The scorecard covers the defects that block the question outright. These are all of them, including
+the ones that only become visible once the ledger is conformed and the rules are applied in the next
+three steps.</p>
 
 <table class="data-table">
 <thead><tr><th>#</th><th>Defect</th><th>Volume</th><th>Where it is dealt with</th></tr></thead>
@@ -179,11 +189,12 @@ applied in the next three steps.</p>
 <tr><td>8</td><td>Booked GST differs from expected GST by more than $1</td><td>107,808 lines</td><td>Exception E5</td></tr>
 <tr><td>9</td><td>Credits claimed on non-recoverable treatments</td><td>36,718 lines</td><td>Exception E6</td></tr>
 <tr><td>10</td><td>Cross-border services with no reverse charge</td><td>11,754 lines</td><td>Exception E7</td></tr>
-<tr><td>11</td><td>Lodged BAS diverges from the computed position</td><td>18 entity-periods</td><td>Step 5 reconciliation and audit</td></tr>
+<tr><td>11</td><td>Lodged BAS diverges from the computed position</td><td>32 entity-periods</td><td>Step 5 reconciliation and audit</td></tr>
 <tr><td>12</td><td>Entities missing from one or two source systems</td><td>6 of 14</td><td>Step 3 outer-join reasoning</td></tr>
 <tr><td>13</td><td>Booked supply category disagrees with the invoice narrative</td><td>~25% of 300 documents</td><td>Lab 2 Step 2 miscoding detection</td></tr>
 </tbody>
 </table>
+</div>
 
 <div class="info-box"><span class="icon">&#128161;</span><div><strong>The work is not the analysis</strong><p>The partner's question needed one <code>GROUP BY</code>. Everything that stands between you and a
 defensible answer to it is conformance: parsing dates, resolving entities, mapping accounts,

@@ -9,7 +9,7 @@ paste this over it.</p>
 <ul class="learning-list">
     <li>Put the generated working paper in front of the reviewer, beside the rule that fired.</li>
     <li>Capture an approve or reject decision per exception.</li>
-    <li>Keep every query an aggregate or a bounded read, against a 2.4 million line ledger.</li>
+    <li>Keep every query an aggregate, a bounded read, or a read of an already-small view — against a 2,400,000-line ledger.</li>
 </ul>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">python</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>import pandas as pd
@@ -20,6 +20,26 @@ st.set_page_config(page_title="GST Control Tower", layout="wide")
 
 # Streamlit in Snowflake hands you the session. Never build a connection.
 session = get_active_session()
+
+# ---------------------------------------------------------------------
+# Heatmap shading without matplotlib.
+#
+# pandas' Styler.background_gradient needs matplotlib, which is NOT in the
+# Streamlit in Snowflake warehouse runtime - it raises
+# "ImportError: background_gradient requires matplotlib" at render time.
+# Computing the shade here keeps the visual with no extra package.
+# ---------------------------------------------------------------------
+def heat_css(df, rgb):
+    hi = max(float(df.to_numpy().max()), 1.0)
+
+    def css(v):
+        alpha = 0.06 + 0.74 * (float(v) / hi)
+        return (f"background-color: rgba({rgb},{alpha:.3f}); "
+                f"color: {'white' if alpha > 0.55 else 'inherit'}")
+
+    return pd.DataFrame([[css(v) for v in row] for row in df.to_numpy()],
+                        index=df.index, columns=df.columns)
+
 
 DB = "GSI_TAX_WORKSHOP"
 
@@ -176,7 +196,7 @@ with tab_heat:
     grid = heat.pivot(index="ENTITY_NAME", columns="TAX_PERIOD",
                       values="EXCEPTION_LINES").fillna(0).astype(int)
     st.dataframe(
-        grid.style.background_gradient(cmap="Blues", axis=None),
+        grid.style.apply(heat_css, rgb="17,86,127", axis=None),
         use_container_width=True, height=460
     )
     st.caption("Read it across for a period that went wrong everywhere, "
@@ -240,8 +260,7 @@ with tab_ai:
 
 <h3>What the fourth tab changes about the reviewer's job</h3>
 
-<p>The first three tabs answer <em>what is wrong</em>. The fourth answers <em>why</em>, and it
-does so in the order that matters: the generated working paper first, the rule that produced the
+<p>The fourth tab answers <em>why</em>, and it does so in the order that matters: the generated working paper first, the rule that produced the
 treatment immediately beneath it, and the variance and counterparty to the side. A reviewer can
 form a view without leaving the screen or writing a query, and the rule identifier means the
 sentence they are reading is traceable to a row in <code>TAX.TAX_RULE_DETERMINATION</code> that
@@ -254,7 +273,7 @@ is a governance conversation rather than a Streamlit one. Swap the dictionary fo
 <code>INSERT</code> into an <code>AUDIT</code> schema table when you build this for a client,
 and note that the decision is then evidence and has to be retained accordingly.</p></div></div>
 
-<div class="info-box warning"><span class="icon">⚠️</span><div><strong>Why every query here is an aggregate or a bounded read</strong><p>Nothing in this app returns a row per ledger line. The tiles and the heatmap are
+<div class="info-box warning"><span class="icon">⚠️</span><div><strong>Why nothing here returns a row per ledger line</strong><p>Nothing in this app returns a row per ledger line. The tiles and the heatmap are
 <code>GROUP BY</code> aggregates, the reconciliation reads a 532-row view, the register carries
 an explicit <code>LIMIT</code> that the user controls, and the AI queue is the 25 rows Step 4
 bounded. Drop the <code>LIMIT</code> from the register and Streamlit will attempt to
@@ -262,7 +281,7 @@ materialise 253,394 rows in the browser — the warehouse will cope, and the fro
 <code>@st.cache_data(ttl=600)</code> on every loader means the ten minutes after the first
 click cost no compute at all.</p></div></div>
 
-<div class="info-box success"><span class="icon">✅</span><div><strong>Where you are</strong><p>One application, four tabs, over a governed ledger: the group position, the reconciliation
+<div class="info-box success"><span class="icon">✅</span><div><strong>One application, four tabs</strong><p>The group position, the reconciliation
 against what was lodged, the exception register ranked by risk, and a review queue where the
 explanation is already written. The tax team never sees the SQL, and every number on the screen
 traces back to a rule row and a source document reference.</p></div></div>

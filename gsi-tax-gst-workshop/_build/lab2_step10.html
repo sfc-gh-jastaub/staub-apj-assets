@@ -6,17 +6,19 @@ until the retention period expires. Past that point the objects, the 2.4 million
 the rule tables and every view over them are gone with no recovery path. Run this only when you
 have finished with the environment. If you want to keep the work and stop the compute cost, run
 <code>ALTER WAREHOUSE GSI_TAX_WH SUSPEND;</code> instead and leave the databases in place — a
-suspended warehouse consumes no credits, and the storage cost of 57 MB is negligible.</p></div></div>
+suspended warehouse consumes no credits, and under a gigabyte of storage costs cents a month.</p></div></div>
 
-<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- Drop the share first. A share cannot be dropped implicitly with the
--- database it grants on, and leaving it behind leaves a dangling grant.
-DROP SHARE IF EXISTS GSI_TAX_AUDIT_SHARE;
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- Drop the share FIRST. A share cannot be dropped implicitly with the database
+-- it grants on, and while it exists the database cannot be dropped at all:
+-- "cannot be dropped. It is still shared by 1 shares". This is the share
+-- Lab 1 Step 8 creates.
+DROP SHARE IF EXISTS GST_AUDIT_SNAPSHOT_SHARE;
 
--- The scenario clone from Lab 1 Optional. Harmless if it was already dropped
+-- The scenario clone from Lab 1 Step 7. Harmless if it was already dropped
 -- at the end of that step, or never created.
 DROP DATABASE IF EXISTS GSI_TAX_SCENARIO;
 
--- The workshop itself: all seven schemas, the Dynamic Table, every view,
+-- The workshop itself: all seven schemas, both Dynamic Tables, every view,
 -- the rule tables and the Streamlit app object.
 DROP DATABASE IF EXISTS GSI_TAX_WORKSHOP;
 
@@ -39,7 +41,7 @@ any semantic view you created through <strong>AI &amp; ML &rarr; Cortex Analyst<
 An agent left pointing at a dropped semantic view will not cost anything, but it will fail
 confusingly for the next person who finds it.</p></div></div>
 
-<div class="info-box success"><span class="icon">✅</span><div><strong>What you take with you</strong><p>The environment is disposable; the pattern is not. Three source systems conformed into one
+<div class="info-box success"><span class="icon">✅</span><div><strong>What you take with you</strong><p>Three source systems conformed into one
 ledger that holds no tax logic, an effective-dated rule set the tax team owns, a determination
 layer thin enough to audit, exceptions ranked by risk, and language models supplying the
 attributes the rules were missing rather than replacing the rules. Rebuild it against your

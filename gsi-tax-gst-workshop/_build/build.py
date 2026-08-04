@@ -12,6 +12,10 @@ The workshop has three generated artefacts and they must never disagree:
                    into Lab 1 Step 1 Block 1, so the SQL files are the source
                    of truth for it)
 
+    apps/*.py  ->  the python code block in its step fragment (the Streamlit
+                   app is a real, runnable, syntax-checked file; the copy in
+                   the guide and notebook is generated from it)
+
     _build/lab{N}_step{M}.html  ->  gsi_tax_workshop_lab{N}_*.html   (assemble.py)
                                 ->  gsi_tax_lab{N}_*.ipynb           (assemble_nb.py)
 
@@ -36,52 +40,95 @@ sys.path.insert(0, str(BUILD))
 
 SETUP_SQL = ["01_setup_raw.sql", "02_setup_erp.sql", "03_setup_rules_bas_docs.sql"]
 
+# Setup notebook step -> the SQL file that step runs. One file per step, so the
+# setup notebook is a 1:1 view of sql/01..03 and a failure points at a stage.
+# Step 4 is the verification query and is authored in setup_step4.html, since it
+# is not part of any generator.
+SETUP_STEP_SQL = {
+    1: "01_setup_raw.sql",
+    2: "02_setup_erp.sql",
+    3: "03_setup_rules_bas_docs.sql",
+}
+
 
 # ---------------------------------------------------------------------------
-# Stage 1 - sql/*.sql  ->  Lab 1 Step 1 Block 1
+# Stage 1 - sql/*.sql  ->  setup notebook step fragments
 # ---------------------------------------------------------------------------
 def sync_setup_block():
-    """Rebuild the Lab 1 Step 1 setup block from the real SQL files.
+    """Rebuild each setup fragment's code block from its SQL file.
 
-    Keeps the fragment's own banner comment and its trailing VERIFICATION
-    query; replaces everything between them with the live contents of
-    sql/01..03, de-duplicating the USE lines and dropping the per-file
-    maintainer notes that participants do not need three copies of.
+    The fragment owns the prose; the SQL file owns the code. Everything between
+    <pre><code> and </code></pre> is replaced wholesale, so the SQL files stay the
+    single source of truth for the generated data and the seeds cannot drift out
+    of the notebook.
     """
-    frag_path = BUILD / "lab1_step1.html"
-    frag = frag_path.read_text()
-
-    body_parts = []
-    seen_use = set()
-    for name in SETUP_SQL:
+    changed = []
+    for step, name in SETUP_STEP_SQL.items():
+        frag_path = BUILD / f"setup_step{step}.html"
+        frag = frag_path.read_text()
         text = (ROOT / "sql" / name).read_text()
-        # drop the "-- NOTE: every RANDOM() ..." maintainer block
-        text = re.sub(r"\A(?:--[^\n]*\n)+\n?", "", text) if "NOTE: every RANDOM" in text[:400] else text
-        out = []
-        for line in text.split("\n"):
-            key = line.strip().upper().rstrip(";")
-            if key.startswith("USE WAREHOUSE") or key.startswith("USE DATABASE"):
-                if key in seen_use:
-                    continue
-                seen_use.add(key)
-            out.append(line)
-        body_parts.append("\n".join(out).strip())
-    body = "\n\n".join(body_parts)
+        # drop the "-- NOTE: every RANDOM() ..." maintainer preamble
+        if "NOTE: every RANDOM" in text[:400]:
+            text = re.sub(r"\A(?:--[^\n]*\n)+\n?", "", text)
+        body = text.strip()
 
-    blocks = re.findall(r"<pre><code>(.*?)</code></pre>", frag, re.S)
-    old = html.unescape(blocks[0])
+        blocks = re.findall(r"<pre><code>(.*?)</code></pre>", frag, re.S)
+        if not blocks:
+            raise SystemExit(f"setup_step{step}.html has no code block to populate")
+        esc = body.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        if esc == blocks[0]:
+            continue
+        frag_path.write_text(frag.replace(blocks[0], esc, 1))
+        changed.append(f"setup_step{step} <- sql/{name}")
+    return changed
 
-    m_hdr = re.match(r"(\A-- =+\n(?:--[^\n]*\n)+-- =+\n)", old)
-    m_ver = re.search(r"(-- -+\n-- VERIFICATION.*)\Z", old, re.S)
-    if not (m_hdr and m_ver):
-        raise SystemExit("lab1_step1 block 1 no longer has the expected banner/VERIFICATION shape")
 
-    new = f"{m_hdr.group(1)}\n{body}\n\n{m_ver.group(1)}"
-    if new == old:
-        return False
-    esc = new.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-    frag_path.write_text(frag.replace(blocks[0], esc, 1))
-    return True
+# ---------------------------------------------------------------------------
+# Stage 1a - apps/*.py  ->  the python code block in a step fragment
+#
+# The Streamlit app is a real file so it can be syntax-checked, run locally
+# against the account and PUT to a stage. Keeping a second hand-maintained copy
+# inside the fragment guarantees the two drift, and the copy in the guide is the
+# one a participant pastes. So the file is the source of truth and the fragment
+# block is generated, exactly as sql/*.sql feeds the setup fragments.
+# ---------------------------------------------------------------------------
+APP_BLOCK = {"lab1_step6.html": "apps/gst_control_tower.py"}
+
+PY_BLOCK_RE = re.compile(
+    r'(<span class="code-lang">python</span>.*?<pre><code>)(.*?)(</code></pre>)', re.S)
+
+
+def sync_app_block():
+    changed = []
+    for frag_name, app_rel in APP_BLOCK.items():
+        frag_path = BUILD / frag_name
+        app_path = ROOT / app_rel
+        frag = frag_path.read_text()
+        m = PY_BLOCK_RE.search(frag)
+        if not m:
+            raise SystemExit(f"{frag_name} has no python code block to populate")
+        esc = (app_path.read_text().strip()
+               .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+        if esc == m.group(2):
+            continue
+        frag_path.write_text(frag[:m.start(2)] + esc + frag[m.end(2):])
+        changed.append(f"{frag_name} <- {app_rel}")
+    return changed
+
+
+def check_apps_compile():
+    """Compile every app file. A syntax error here reaches the room as a dead app."""
+    import py_compile
+    import tempfile
+    problems = []
+    with tempfile.TemporaryDirectory() as tmp:
+        for app_rel in APP_BLOCK.values():
+            try:
+                py_compile.compile(str(ROOT / app_rel), doraise=True,
+                                   cfile=str(pathlib.Path(tmp) / "a.pyc"))
+            except py_compile.PyCompileError as e:
+                problems.append(f"{app_rel}: {e.msg.strip().splitlines()[-1]}")
+    return problems
 
 
 # ---------------------------------------------------------------------------
@@ -197,6 +244,7 @@ def check_parity(lab, cfg):
 def check_staleness():
     """Fail if any generated artefact is older than a source it derives from."""
     srcs = list((ROOT / "sql").glob("*.sql")) + list(BUILD.glob("lab*_step*.html")) \
+        + list((ROOT / "apps").glob("*.py")) \
         + [BUILD / "assemble.py", BUILD / "assemble_nb.py"]
     newest = max(p.stat().st_mtime for p in srcs)
     stale = []
@@ -223,6 +271,14 @@ RETIRED = [
     "258,145", "25,539,866", "175,942,290", "108,191", "12,313", "30,573",
     "36,500", "64,781", "77,737", "95,785", "8,074", "4,858", "2,521",
     "2,814", "2,803", "2,457", "10.76%", "96.76%", "3.24%", "1.27%", "5.45%",
+    # Retired when the Lab 1 Step 2 window was pinned to the dataset as-of date.
+    # These two were measured against a CURRENT_DATE() window and never matched
+    # the pinned data - the only wrong figures the validation sweep found.
+    "96,025", "176,904,538",
+    # Word-form figures derived from the retired 25,539,866 base. The digit-form
+    # guard missed these because the prose spelled them out in millions, so a
+    # figure sweep that only greps exact digit strings is not sufficient.
+    "$25.5 million", "$38.3 million",
 ]
 
 ARTEFACTS = [
@@ -253,10 +309,61 @@ def find_retired():
     return hits
 
 
+# ---------------------------------------------------------------------------
+# Stage 5b - packages the Streamlit warehouse runtime does not have
+#
+# These pandas Styler methods import matplotlib lazily and raise at RENDER time,
+# not at import time, so a py_compile check passes and the app dies in front of
+# the room. matplotlib is not in the Streamlit in Snowflake warehouse runtime.
+# Found the hard way: "ImportError: background_gradient requires matplotlib".
+# ---------------------------------------------------------------------------
+UNAVAILABLE = [
+    ("background_gradient", "needs matplotlib - shade with .apply() instead"),
+    ("text_gradient", "needs matplotlib - set colour in .apply() instead"),
+    ("style.bar(", "needs matplotlib - use st.column_config.ProgressColumn"),
+    ("import matplotlib", "matplotlib is not in the warehouse runtime"),
+    ("import seaborn", "seaborn is not in the warehouse runtime"),
+]
+
+
+def check_python_runtime():
+    """Fail on APIs that compile fine and then raise inside Streamlit.
+
+    Comments are stripped first: the app code carries a comment explaining why
+    background_gradient is avoided, and a guard that trips on its own
+    documentation is worse than no guard.
+    """
+    problems = []
+    for frag in sorted(BUILD.glob("lab*_step*.html")):
+        text = frag.read_text()
+        for lang, code in re.findall(
+            r'<span class="code-lang">(\w+)</span>.*?<pre><code>(.*?)</code></pre>',
+            text, re.S,
+        ):
+            if lang != "python":
+                continue
+            body = html.unescape(code)
+            body = "\n".join(re.sub(r"#.*$", "", ln) for ln in body.split("\n"))
+            for bad, why in UNAVAILABLE:
+                if bad in body:
+                    problems.append(f"{frag.name}: '{bad}' {why}")
+    return problems
+
+
 def main():
-    print("stage 1  sql/*.sql -> lab1_step1 setup block")
+    print("stage 1  sql/*.sql -> setup notebook fragments")
     changed = sync_setup_block()
-    print("         " + ("setup block updated from sql/" if changed else "already current"))
+    for line in changed:
+        print("         " + line)
+    if not changed:
+        print("         already current")
+
+    print("stage 1a apps/*.py -> step fragment python blocks")
+    app_changed = sync_app_block()
+    for line in app_changed:
+        print("         " + line)
+    if not app_changed:
+        print("         already current")
 
     import assemble
     import importlib
@@ -273,7 +380,7 @@ def main():
     print("stage 3  fragments -> notebooks")
     import assemble_nb
     importlib.reload(assemble_nb)
-    for lab in ("lab1", "lab2"):
+    for lab in ("setup", "lab1", "lab2", "reset"):
         name, total, md, sql, py, words = assemble_nb.build(lab)
         print(f"         {name}: {total} cells ({md} md / {sql} sql / {py} py), {words} words")
 
@@ -319,6 +426,18 @@ def main():
         failures.extend(sorted(set(retired)))
     else:
         print("         no retired figures present in any artefact")
+
+    runtime = check_python_runtime()
+    if runtime:
+        failures.extend(runtime)
+    else:
+        print("         app code uses no package missing from the warehouse runtime")
+
+    bad_py = check_apps_compile()
+    if bad_py:
+        failures.extend(bad_py)
+    else:
+        print(f"         {len(APP_BLOCK)} app file(s) compile")
 
     stale = check_staleness()
     if stale:

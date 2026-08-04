@@ -2,9 +2,8 @@
 -- on every run, in every account, at any warehouse size. The figures quoted in
 -- the lab HTML depend on this. Do not remove the seeds.
 -- =====================================================================
--- GSI TAX WORKSHOP — LAB 1 STEP 1 SETUP
--- Builds warehouse, database, 7 schemas and all 8 RAW_DATA tables.
--- Target: 2,400,000 GL lines. Runtime target: under 2 minutes on SMALL.
+-- GSI TAX WORKSHOP — SETUP STEP 1: PLATFORM AND REFERENCE DATA
+-- Builds warehouse, database, 7 schemas and the three reference tables.
 -- =====================================================================
 
 CREATE WAREHOUSE IF NOT EXISTS GSI_TAX_WH
@@ -14,6 +13,12 @@ CREATE WAREHOUSE IF NOT EXISTS GSI_TAX_WH
     INITIALLY_SUSPENDED = FALSE;
 
 USE WAREHOUSE GSI_TAX_WH;
+
+-- A share still granting on this database pins it, and CREATE OR REPLACE
+-- DATABASE then fails with "cannot be dropped, it is still shared by 1 shares".
+-- Lab 1 Step 8 creates exactly such a share, so anyone re-running setup after
+-- finishing Lab 1 hits that error. Drop it first and setup stays re-runnable.
+DROP SHARE IF EXISTS GST_AUDIT_SNAPSHOT_SHARE;
 
 CREATE OR REPLACE DATABASE GSI_TAX_WORKSHOP;
 USE DATABASE GSI_TAX_WORKSHOP;

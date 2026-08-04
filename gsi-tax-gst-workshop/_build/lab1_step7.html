@@ -37,9 +37,9 @@ different copy on four laptops. It is now a table. The rows carry explicit
 <code>VALID_FROM</code> and <code>VALID_TO</code> dates, so the position is effective-dated rather
 than simply overwritten — and the file did not have to change shape to get here.</p></div></div>
 
-<h3>Block 1 — clone the entire environment</h3>
+<h3>Clone the entire environment</h3>
 
-<p>You are about to change tax rules. Not in production.</p>
+<p>You are about to change tax rules, so do it somewhere that is not production.</p>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>CREATE DATABASE GSI_TAX_SCENARIO CLONE GSI_TAX_WORKSHOP;
 
@@ -55,7 +55,7 @@ micro-partitions with the original until one of them diverges. From this point t
 independent: anything you do in <code>GSI_TAX_SCENARIO</code> is invisible to
 <code>GSI_TAX_WORKSHOP</code>.</p>
 
-<h3>Block 2 — apply the new rules to the clone only</h3>
+<h3>Apply the new rules to the clone only</h3>
 
 <p>Note the database qualification on every statement. This is the whole safety mechanism, and it is
 worth reading twice before you run it.</p>
@@ -120,7 +120,7 @@ treatment for every affected line has already changed in the clone. There is not
 nothing to recompute and nothing to deploy — the next query simply returns a different and correct
 answer.</p></div></div>
 
-<h3>Block 3 — the two positions, side by side</h3>
+<h3>The two positions, side by side</h3>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>WITH production AS (
     SELECT ENTITY_NAME,
@@ -146,11 +146,11 @@ ORDER BY ABS(COALESCE(s.NET_GST, 0) - COALESCE(p.NET_GST, 0)) DESC;</code></pre>
 
 <p>One query, two databases, fourteen entities, and the answer the tax team asked for. Because the
 new rules carry a future <code>VALID_FROM</code>, the impact on <em>historical</em> periods is nil by
-construction — which is itself the finding, and the point worth making out loud: no lodged period is
+construction — which is itself the finding: no lodged period is
 restated. The forward effect appears the moment those periods close, and the tax team can see the
 number now rather than discovering it in a quarterly true-up.</p>
 
-<h3>Block 4 — throw the scenario away</h3>
+<h3>Throw the scenario away</h3>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>DROP DATABASE GSI_TAX_SCENARIO;</code></pre></div>
 
@@ -159,12 +159,11 @@ scenario after all, <code>UNDROP DATABASE GSI_TAX_SCENARIO;</code> brings it bac
 retention window.</p>
 
 <div class="info-box success"><span class="icon">⚡</span><div><strong>What the exercise actually cost</strong><p>The tax team's spreadsheet became governed, effective-dated reference data. Modelling its impact
-across a 2,400,000-line ledger cost one clone and four minutes — no environment request, no data
-copy, no storage, production untouched and no lodged period restated. Ask the room what the same
-question costs them today: who provisions the sandbox, how long the refresh takes, and how stale the
-data is by the time the answer arrives.</p></div></div>
+across a 2,400,000-line ledger cost one clone — no environment request, no data copy, no storage and
+production untouched. Worth comparing against what the same question costs today: who provisions the
+sandbox, how long the refresh takes, and how stale the data is by the time the answer arrives.</p></div></div>
 
-<div class="info-box"><span class="icon">🔑</span><div><strong>Why this is the pattern, not a trick</strong><p>Every rate change, every treaty update and every legislative amendment is this exercise. A rule
+<div class="info-box"><span class="icon">🔑</span><div><strong>Every rate change is this exercise</strong><p>Every rate change, every treaty update and every legislative amendment is this exercise. A rule
 arrives from the person who owns it, somebody has to say what it does to the numbers, and the answer
 has to be produced without disturbing the position already lodged. Clone, apply, compare, discard —
 and because the rules are data rather than code, the only artefact that changed was a set of rows

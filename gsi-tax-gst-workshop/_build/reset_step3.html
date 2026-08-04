@@ -1,0 +1,40 @@
+<div class="beat" data-beat="business">
+<p><strong>The full teardown: both labs, the setup data, the warehouse, everything.</strong> Use this
+when you have finished with the environment, or when you want the next run to prove that setup works
+from nothing. Four statements remove every object this workshop created.</p>
+</div>
+
+<div class="info-box warning"><span class="icon">&#9888;&#65039;</span><div><strong>This is irreversible beyond the Time Travel window</strong><p>Dropping a database starts its Time Travel clock, and <code>UNDROP DATABASE</code> works only until
+the retention period expires. Past that point the 2.4 million ledger lines, the rule tables and every
+view over them are gone with no recovery path. If you only want to stop the compute cost, run
+<code>ALTER WAREHOUSE GSI_TAX_WH SUSPEND;</code> instead and leave the databases in place &mdash; a
+suspended warehouse consumes no credits, and under a gigabyte of storage costs cents a month.</p></div></div>
+
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- Order matters. A share still granting on the database blocks the drop with
+-- "cannot be dropped. It is still shared by 1 shares", so the share goes first.
+DROP SHARE IF EXISTS GST_AUDIT_SNAPSHOT_SHARE;
+
+-- The scenario clone from Lab 1 Step 7, if it is still around.
+DROP DATABASE IF EXISTS GSI_TAX_SCENARIO;
+
+-- The workshop itself: all seven schemas, both Dynamic Tables, every view, the
+-- rule tables, the semantic view, the agent and the Streamlit app objects.
+DROP DATABASE IF EXISTS GSI_TAX_WORKSHOP;
+
+-- The warehouse last, so the statements above had compute to run on.
+DROP WAREHOUSE IF EXISTS GSI_TAX_WH;</code></pre></div>
+
+<div class="beat" data-beat="prove">
+<p><strong>Nothing named <code>GSI_TAX</code> is left in the account.</strong> The next section confirms
+it. To rebuild from scratch, run <code>gsi_tax_lab0_setup.ipynb</code>, then Lab 1, then Lab 2.</p>
+</div>
+
+<div data-surface="guide">
+<h3>What this does not remove</h3>
+<p>Two things live outside the workshop database and survive this teardown. Anything you created in your
+own workspace or personal schema while experimenting is untouched, which is usually what you want. And
+if you built a semantic view or an agent through Snowsight into a different database than
+<code>GSI_TAX_WORKSHOP</code>, it is still there &mdash; check <strong>AI &amp; ML</strong> in Snowsight
+if you want a genuinely clean account, because an agent pointing at a dropped semantic view will fail
+confusingly for whoever finds it next.</p>
+</div>

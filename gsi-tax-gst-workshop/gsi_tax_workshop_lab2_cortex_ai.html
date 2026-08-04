@@ -1019,8 +1019,8 @@ missing grant.</p></div></div>
 <h3>One query, all four layers</h3>
 
 <p>The query below counts every object the lab depends on and puts the expected count beside the
-actual one, so you diagnose your own environment rather than comparing numbers against a screen at
-the front of the room.</p>
+actual one, so you diagnose your own environment rather than checking numbers against
+someone else's screen.</p>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>USE DATABASE GSI_TAX_WORKSHOP;
 USE WAREHOUSE GSI_TAX_WH;
@@ -1062,7 +1062,7 @@ ORDER BY SORT_KEY;</code></pre></div>
         <tr><td>RAW</td><td><code>RAW_DATA.ERP_SAP_GL</code></td><td>1,200,000</td><td>Source ledger, signed amounts, text dates.</td></tr>
         <tr><td>RAW</td><td><code>RAW_DATA.ERP_ORACLE_GL</code></td><td>800,000</td><td>Source ledger, separate debit and credit columns.</td></tr>
         <tr><td>RAW</td><td><code>RAW_DATA.ERP_LEGACY_AP</code></td><td>400,000</td><td>Source ledger, GST-inclusive amounts.</td></tr>
-        <tr><td>RAW</td><td><code>RAW_DATA.DOC_TAX_INVOICE</code></td><td>300</td><td>The free text this lab reads. Untouched in Lab 1.</td></tr>
+        <tr><td>RAW</td><td><code>RAW_DATA.DOC_TAX_INVOICE</code></td><td>300</td><td>The free text this lab reads. Loaded in setup, untouched by Lab 1.</td></tr>
         <tr><td>CURATED</td><td><code>CURATED.GL_HARMONISED</code></td><td>2,400,000</td><td>The one governed ledger. The only Dynamic Table here.</td></tr>
         <tr><td>TAX</td><td><code>TAX.V_GST_DETERMINED</code></td><td>2,400,000</td><td>Every line with its treatment, rate and rule lineage.</td></tr>
         <tr><td>TAX</td><td><code>TAX.V_GST_VS_BAS</code></td><td>532</td><td>Entity by period reconciliation against lodged BAS.</td></tr>
@@ -1071,17 +1071,17 @@ ORDER BY SORT_KEY;</code></pre></div>
 </table>
 
 <div class="info-box warning"><span class="icon">🔧</span><div><strong>If any count is zero</strong><p>A zero means the object exists but was never populated, or the schema was created and the load
-never ran. Re-run the Lab 1 Step 1 setup script in full and then re-run this query. If a statement
+never ran. Re-run <code>gsi_tax_lab0_setup.ipynb</code> in full and then re-run this query. If a statement
 fails with an object-not-found error instead of returning zero, the object was never created at all
 and Lab 1 needs to be worked through from the beginning. Do not proceed into the AI steps with a
 partial foundation — the failures will look like AI problems and they will not be.</p></div></div>
 
 <p>The 300-row table is the one to notice. It is the only object in the account holding free text,
-it has been sitting there since Lab 1 completely unused, and it is where the next four steps
+it has been sitting there since setup completely unused, and it is where the next four steps
 happen. Everything a human wrote about these transactions is in there, and so far nothing in your
 pipeline has been able to do anything with it.</p>
 
-<div class="info-box success"><span class="icon">✅</span><div><strong>Where you are</strong><p>Foundation verified across four layers. The governed ledger, the determination rules and the
+<div class="info-box success"><span class="icon">✅</span><div><strong>Foundation verified</strong><p>Foundation verified across four layers. The governed ledger, the determination rules and the
 exception register are all intact and queryable. From here on, every object you create reads from
 them rather than replacing them.</p></div></div>
     <label class="completion-checkbox"><input type="checkbox" onchange="markStepComplete(1)"> Mark step 1 complete</label>
@@ -1102,13 +1102,13 @@ rule logic downstream can detect it, because the rules faithfully apply the corr
 wrong category.</p>
 
 <ul class="learning-list">
-    <li>Read the invoice narrative that has been sitting unused since Lab 1.</li>
+    <li>Read the invoice narrative that has been sitting unused since setup.</li>
     <li>Have a language model classify the supply from that narrative in one function call.</li>
     <li>Compare what the AI read against what the ledger booked, and find the disagreements.</li>
     <li>Push the findings into the exception register the tax team already works from.</li>
 </ul>
 
-<h3>Block 1 — the narrative, the booking and the AI verdict in one grid</h3>
+<h3>Narrative, booking and verdict side by side</h3>
 
 <p>Three columns: what the supplier wrote, what the ledger recorded, and what the model concluded.
 Where columns two and three disagree, you are looking at a candidate miscoding — and you are
@@ -1150,10 +1150,10 @@ ledger, and that is a deliberate design decision rather than a shortcut for the 
 model cost scales linearly with rows: running a classifier across the full ledger would cost
 thousands of times what this step costs and tell you almost nothing extra. In production you
 classify <strong>on arrival</strong> — each document once, as it lands — not retrospectively across
-the whole ledger every time somebody wants a report. Say this out loud to a client before they ask,
-because they will ask, and the answer is much stronger offered than extracted.</p></div></div>
+the whole ledger every time somebody wants a report. Offer a client that reasoning before they ask for it,
+because they will ask, and it lands better offered than extracted.</p></div></div>
 
-<h3>Block 2 — make it a view so the rest of the lab can join to it</h3>
+<h3>Make it a view so the rest of the lab can join to it</h3>
 
 <p>The classification is only useful if it is an object. The view below applies it across all 300
 documents and adds the one column that turns an observation into a finding: a flag comparing what
@@ -1213,7 +1213,7 @@ returns nothing for a narrative, a bare <code>&lt;&gt;</code> comparison would y
 every <code>WHERE MISCODING_FLAG</code> filter downstream. An unclassified document is not a clean
 document, and you do not want it disappearing from the count.</p>
 
-<h3>Block 3 — the miscoding pattern</h3>
+<h3>The miscoding pattern</h3>
 
 <p>Individual disagreements are interesting. The pattern across them is what a tax practice acts
 on, because it points at a process rather than a transaction.</p>
@@ -1246,7 +1246,7 @@ and it is invisible to every control that operates on numbers. It is only visibl
 reads. Until this step, your pipeline had no such control — not because the text was missing, but
 because nothing could query it.</p></div></div>
 
-<h3>Block 4 — close the loop into the existing work queue</h3>
+<h3>Close the loop into the existing work queue</h3>
 
 <p>A finding that lives in its own table is a finding nobody actions. The join below lands the AI
 results in <code>TAX.V_GST_EXCEPTIONS</code> — the same register the tax team has been working from
@@ -1280,7 +1280,7 @@ applied, <strong>the rule that applied it</strong> and the existing exception co
 line. A reviewer opening this result has the AI's opinion and the deterministic audit trail in a
 single row, and can disagree with the former without touching the latter.</p>
 
-<div class="info-box success"><span class="icon">🎯</span><div><strong>The teaching point — AI did not replace the rules</strong><p>Read the determination logic again: it is unchanged. No rule was rewritten, no rate was moved, no
+<div class="info-box success"><span class="icon">🎯</span><div><strong>AI did not replace the rules</strong><p>Read the determination logic again: it is unchanged. No rule was rewritten, no rate was moved, no
 treatment was decided by a model. What the AI did was supply a <strong>missing attribute</strong> to
 the rules — a supply category derived from evidence rather than from an account code somebody picked
 in a hurry. The determination layer stays deterministic, versioned and auditable; the AI sits
@@ -1314,7 +1314,7 @@ input tax credit must hold a valid tax invoice, and that invoice must show the
 paid or the GST was charged. It is one of the most mechanical findings in a GST review and one of the
 most commonly missed, because the ABN is on a piece of paper and the claim is in a database.</p></div></div>
 
-<h3>Block 1 — two questions, asked of the same text</h3>
+<h3>Two questions, asked of the same text</h3>
 
 <p><code>EXTRACT_ANSWER</code> takes a document and a question in plain English. It is not a regular
 expression: it does not need to know that an ABN is eleven digits in a 2-3-3-3 grouping, and it does
@@ -1356,7 +1356,7 @@ as <code>NULL</code> and can be counted, exactly as <code>TRY_TO_DATE</code> han
 legacy dates in Lab 1. Same principle, different data type: tolerate the bad value, record that it
 was bad, never let it stop the query.</p></div></div>
 
-<h3>Block 2 — the extraction as a queryable object</h3>
+<h3>The extraction as a queryable object</h3>
 
 <p>The view below extracts both fields across all 300 documents, normalises the ABN for comparison
 by stripping every non-digit character from both sides, and attaches the ledger's own view of the
@@ -1432,7 +1432,7 @@ and <code>75370698317</code> are the same ABN and a naive string comparison says
 <code>HAS_ABN_ON_INVOICE</code> tests for exactly eleven digits rather than for a non-empty string,
 so a partial extraction does not register as a valid ABN.</p>
 
-<h3>Block 3 — one query, three findings</h3>
+<h3>One query, three findings</h3>
 
 <p>Three separate questions, three separate reports and three separate meetings is how this work
 usually gets done. It fits in one result set.</p>
@@ -1477,7 +1477,7 @@ supplier master. Each of those conditions removes a class of false positive — 
 issued, a low-value acquisition below the threshold, a supplier whose ABN you already hold on file.
 A number a client cannot argue with is worth more than a bigger number they can.</p></div></div>
 
-<div class="info-box success"><span class="icon">🎯</span><div><strong>The teaching point — the invoice is the primary evidence</strong><p>In an audit, the ledger is a claim and the invoice is the evidence for it. Until this step your
+<div class="info-box success"><span class="icon">🎯</span><div><strong>The invoice is the primary evidence</strong><p>In an audit, the ledger is a claim and the invoice is the evidence for it. Until this step your
 pipeline could interrogate the claim in 2.4 million rows and could not read a single piece of
 evidence, so every ABN and GST-amount test was a manual sample of a filing cabinet. It is now a
 query — over the same governed data, joined to the same supplier master, in the same warehouse. The
@@ -1503,7 +1503,7 @@ between a query result and a deliverable a client will pay for.</p>
     <li>Build the rationale as a bounded view and read the working papers back.</li>
 </ul>
 
-<h3>Block 1 — the same exceptions, two prompts, one grid</h3>
+<h3>The same exceptions, two prompts</h3>
 
 <p>Both columns below are generated by the same model, over the same five exceptions, in the same
 query. The only variable is the prompt. Read the two side by side before you read anything else in
@@ -1579,7 +1579,7 @@ too that <strong>every</strong> concatenated value is wrapped in <code>COALESCE<
 <code>NULL</code> anywhere in that chain would null the whole prompt string and the model would
 return nothing at all.</p></div></div>
 
-<h3>Block 2 — the rationale as a bounded view</h3>
+<h3>The rationale as a bounded view</h3>
 
 <p>The view below uses only the good prompt, carries the rule lineage through to the output, and
 caps the population at 25 documents inside the CTE. The cap is inside the CTE deliberately: put
@@ -1631,7 +1631,7 @@ SELECT
     )                                                     AS WORKING_PAPER_NARRATIVE
 FROM ranked k;</code></pre></div>
 
-<h3>Block 3 — read the working papers</h3>
+<h3>Read the working papers</h3>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>SELECT
     ENTITY_NAME,
@@ -1652,7 +1652,7 @@ properly. Each is three sentences, in the same shape, naming the entity, the amo
 action. That is a first draft of a working paper produced from the exception register, and the
 reviewer's job has changed from writing to checking.</p>
 
-<div class="info-box success"><span class="icon">🔗</span><div><strong>The teaching point — every sentence traces back to a rule row</strong><p><code>APPLIED_RULE_ID</code> and <code>APPLIED_RULE_DESCRIPTION</code> sit on the same row as the
+<div class="info-box success"><span class="icon">🔗</span><div><strong>Every sentence traces back to a rule row</strong><p><code>APPLIED_RULE_ID</code> and <code>APPLIED_RULE_DESCRIPTION</code> sit on the same row as the
 generated text, which means no paragraph in this output is unattributable. A partner who does not
 believe a sentence can look up rule 16 in <code>TAX.TAX_RULE_DETERMINATION</code>, read the row a
 human wrote, and see the validity dates that made it apply to this transaction. The narrative is
@@ -1688,7 +1688,7 @@ words they already use.</p>
     <li>Ask eight questions in plain English, and one of them closes the workshop.</li>
 </ul>
 
-<h3>Block 1 — one wide view for the semantic layer</h3>
+<h3>One wide view for the semantic layer</h3>
 
 <p>Cortex Analyst reasons best over a single wide, flat object: one row per ledger line, every
 dimension and every measure present as a column, no joins left for the model to work out. The view
@@ -1795,7 +1795,7 @@ lodgement measures, <em>"entity"</em> and <em>"company"</em> for <code>ENTITY_NA
 <code>TAX_PERIOD</code>. This is the least technical work in the entire workshop and it determines
 whether anybody uses what you built. Sit with the tax team and write them down.</p></div></div>
 
-<h3>Block 2 — the DDL fallback</h3>
+<h3>If the UI route is unavailable</h3>
 
 <p>If Autopilot is unavailable in your account, or you want the semantic view in version control
 alongside the rest of the pipeline, this is the same object written by hand. Note that the synonyms
@@ -1909,22 +1909,22 @@ answer, and nobody signs off on a number with no working.</p>
     <li><strong>Show imported professional fees before and after 1 July 2024.</strong> &mdash; demonstrate this one live.</li>
 </ol>
 
-<div class="info-box success"><span class="icon">⭐</span><div><strong>Why question 8 is the one to run in front of the room</strong><p>It exercises the effective-dated determination rules you built in Lab 1. The same population of
+<div class="info-box success"><span class="icon">⭐</span><div><strong>Why question 8 is the one to try first</strong><p>It exercises the effective-dated determination rules you built in Lab 1. The same population of
 imported professional fees, from the same offshore suppliers, on the same accounts, returns
 <code>GST_FREE</code> at 0.00% before 1 July 2024 and <code>REVERSE_CHARGE</code> at 10.00% from that
 date onward — because rule 9 stopped applying and rule 16 started. Nothing about the transactions
 changed. Only the rule that applied to them did, and it changed because of the date on the document
 rather than the date on the calendar. The agent finds that boundary from one sentence of plain
-English, and the $25.5 million of expected GST on the far side of it is the number that ends the
+English, and the $26.2 million of expected GST on the far side of it is the number that ends the
 workshop.</p></div></div>
 
-<div class="info-box"><span class="icon">🎯</span><div><strong>The teaching point — and the point of the whole workshop</strong><p>The agent is only as good as the semantic layer, and the semantic layer is only as good as the
+<div class="info-box"><span class="icon">🎯</span><div><strong>Lab 1 was the prerequisite, not the warm-up</strong><p>The agent is only as good as the semantic layer, and the semantic layer is only as good as the
 governed data underneath it. Point Cortex Analyst at three unreconciled ERPs with three date formats,
 three amount conventions and no entity crosswalk and it will answer fluently and wrongly. Everything
 that makes question 8 work — the conformed ledger, the effective-dated rules, the rule lineage on
 every line, the exception register, the reconciliation — was built in Lab 1, before any AI was
 involved. <strong>Lab 1 was not the warm-up for this. Lab 1 was the prerequisite for this.</strong>
-That is the sentence to leave the room with.</p></div></div>
+That is the point worth leaving with.</p></div></div>
     <label class="completion-checkbox"><input type="checkbox" onchange="markStepComplete(5)"> Mark step 5 complete</label>
     </div>
 </div>
@@ -1955,12 +1955,12 @@ and nothing else. That is deliberate, not an oversight. A Dynamic Table cannot r
 whose lineage contains another Dynamic Table — Snowflake rejects it with <code>Dynamic Tables do
 not support reading from views containing objects of type DYNAMIC_TABLE</code>. Because
 <code>TAX.V_GST_EXCEPTIONS</code> reads <code>TAX.V_GST_DETERMINED</code>, which reads
-<code>CURATED.GL_HARMONISED</code>, and that is the workshop's one Dynamic Table, none of those
+<code>CURATED.GL_HARMONISED</code>, which is a Dynamic Table, none of those
 three objects can appear below. Point this at <code>V_GST_EXCEPTIONS</code> and the
 <code>CREATE</code> fails at compile time. The AI calls are therefore inlined over the base
 document table directly.</p></div></div>
 
-<h3>Block 1 — write the model output down once</h3>
+<h3>Write the model output down once</h3>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>CREATE OR REPLACE DYNAMIC TABLE AI_INSIGHTS.DT_AI_EXCEPTION_REVIEW
     TARGET_LAG = '24 hours'
@@ -2064,7 +2064,7 @@ month is not going to change, so there is nothing to be gained by re-reading it 
 <code>ALTER DYNAMIC TABLE AI_INSIGHTS.DT_AI_EXCEPTION_REVIEW REFRESH;</code> if you want to
 force one immediately.</p></div></div>
 
-<h3>Block 2 — read it, and confirm no model ran</h3>
+<h3>Read it, and confirm no model ran</h3>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- 1. The review queue, highest-interest documents first. This is now an
 --    ordinary table read: 25 rows off storage, no model invocation, no
@@ -2082,7 +2082,7 @@ LIMIT 10;
 -- 2. What Snowflake decided to do with your declaration.
 SHOW DYNAMIC TABLES IN SCHEMA AI_INSIGHTS;</code></pre></div>
 
-<p>Run statement 1 twice and watch the elapsed time. Then compare it against Step 4 Block 3,
+<p>Run statement 1 twice and watch the elapsed time. Then compare it against the equivalent query in Step 4,
 which asked the same question of the view: there, each execution queued 25 prompts, waited for
 25 completions and paid for every token in both directions. Here the text was generated once
 and is now being read, which is why the second execution is quicker still — Snowflake serves it
@@ -2105,7 +2105,7 @@ this object and it costs nothing here, because a full refresh of 25 documents is
 a day. It is also the reason the bounding <code>LIMIT</code> matters: whatever the population
 is, the refresh will process all of it.</p>
 
-<div class="info-box success"><span class="icon">✅</span><div><strong>The production shape</strong><p>Classify and draft on arrival, write the answer down, and let everything downstream read the
+<div class="info-box success"><span class="icon">✅</span><div><strong>Generate on arrival, read from storage</strong><p>Classify and draft on arrival, write the answer down, and let everything downstream read the
 stored text. The generated narrative in this table carries <code>DOC_ID</code>,
 <code>SOURCE_SYSTEM</code> and <code>SOURCE_DOC_REF</code>, so it still joins back to the
 ledger and to the exception register — the audit trail survives being written down. What
@@ -2136,7 +2136,7 @@ order the tax team should actually work it.</p>
     <li>Turn the label into a triage priority the tax team can sort on.</li>
 </ul>
 
-<div class="info-box warning"><span class="icon">⚠️</span><div><strong><code>AI_SENTIMENT</code> returns <code>mixed</code> as well as positive, negative and neutral</strong><p>This is the single most commonly missed detail with this function. A <code>CASE</code> that
+<div class="info-box warning"><span class="icon">⚠️</span><div><strong><code>AI_SENTIMENT</code> returns <code>mixed</code> as well as positive, negative and neutral</strong><p>A <code>CASE</code> that
 handles only <code>positive</code>, <code>negative</code> and <code>neutral</code> does not
 fail, does not warn and does not return NULL — it silently drops every <code>mixed</code> row
 into whatever your <code>ELSE</code> branch says, and <code>mixed</code> is exactly the label
@@ -2145,7 +2145,7 @@ furious about the assessment. Write all four branches explicitly, every time. An
 the output numerically: it is a label, not a score, so <code>&gt; 0.5</code> is meaningless
 here.</p></div></div>
 
-<h3>Block 1 — read the tone, next to the text</h3>
+<h3>Read the tone, next to the text</h3>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>WITH correspondence AS (
     -- Bound the population before the model sees it, as in every other step.
@@ -2186,13 +2186,13 @@ correction and then objects to the amount is genuinely both, and forcing it into
     </thead>
     <tbody>
         <tr><td><code>negative</code></td><td><strong>1 - URGENT</strong></td><td>A dispute, an escalation or a complaint. Someone is waiting and unhappy about it.</td></tr>
-        <tr><td><code>mixed</code></td><td><strong>2 - REVIEW</strong></td><td>Co-operative on one point and objecting on another. Needs a human to read it properly — and the branch most people forget to write.</td></tr>
+        <tr><td><code>mixed</code></td><td><strong>2 - REVIEW</strong></td><td>Co-operative on one point and objecting on another. Needs a human to read it properly.</td></tr>
         <tr><td><code>neutral</code></td><td><strong>3 - ROUTINE</strong></td><td>A factual note. Acknowledge and file.</td></tr>
         <tr><td><code>positive</code></td><td><strong>4 - MONITOR</strong></td><td>A confirmation that something has been resolved. No action beyond closing the item.</td></tr>
     </tbody>
 </table>
 
-<h3>Block 2 — persist it, and see the shape of the queue</h3>
+<h3>Persist it, and see the shape of the queue</h3>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>CREATE OR REPLACE VIEW AI_INSIGHTS.V_AI_CORRESPONDENCE_TRIAGE AS
 WITH correspondence AS (
@@ -2240,10 +2240,9 @@ FROM AI_INSIGHTS.V_AI_CORRESPONDENCE_TRIAGE
 GROUP BY 1, 2
 ORDER BY 1;</code></pre></div>
 
-<p>The <code>'9 - UNCLASSIFIED'</code> branch is a deliberate canary rather than defensive
-padding. Because all four documented labels are handled above it, any row landing there means
-the function returned something the view does not know about — and you will see it as a count
-rather than discovering it months later as a silently mis-prioritised message.</p>
+<p>The <code>'9 - UNCLASSIFIED'</code> branch is a canary. All four documented labels are handled
+above it, so any row landing there means the function returned something the view does not know about,
+and you see it as a count rather than as a silently mis-prioritised message months later.</p>
 
 <div class="info-box"><span class="icon">🔑</span><div><strong>Sentiment is a routing signal, not a tax position</strong><p>Nothing in this step changes a treatment, a rate or a return. An angry supplier is not
 evidence that the GST is wrong, and a grateful one is not evidence that it is right — the
@@ -2252,8 +2251,7 @@ gives the tax practice is order of work: 25 messages sorted so the disputed and 
 disputed reach a human first, and the acknowledgements wait. <code>NEEDS_RESPONSE</code> is
 the column the queue actually filters on.</p></div></div>
 
-<div class="info-box success"><span class="icon">✅</span><div><strong>Where you are</strong><p>Three kinds of unstructured evidence are now queryable: the narrative told you what was
-bought, the remarks told you what the invoice claimed, and the correspondence tells you how
+<div class="info-box success"><span class="icon">✅</span><div><strong>Three kinds of evidence, all queryable</strong><p>The narrative told you what was bought, the remarks told you what the invoice claimed, and the correspondence tells you how
 hard someone is pushing back. All three join to the ledger on
 <code>(SOURCE_SYSTEM, SOURCE_DOC_REF)</code>, which is what keeps them part of the tax record
 rather than a separate pile.</p></div></div>
@@ -2278,7 +2276,7 @@ paste this over it.</p>
 <ul class="learning-list">
     <li>Put the generated working paper in front of the reviewer, beside the rule that fired.</li>
     <li>Capture an approve or reject decision per exception.</li>
-    <li>Keep every query an aggregate or a bounded read, against a 2.4 million line ledger.</li>
+    <li>Keep every query an aggregate, a bounded read, or a read of an already-small view — against a 2,400,000-line ledger.</li>
 </ul>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">python</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>import pandas as pd
@@ -2289,6 +2287,26 @@ st.set_page_config(page_title="GST Control Tower", layout="wide")
 
 # Streamlit in Snowflake hands you the session. Never build a connection.
 session = get_active_session()
+
+# ---------------------------------------------------------------------
+# Heatmap shading without matplotlib.
+#
+# pandas' Styler.background_gradient needs matplotlib, which is NOT in the
+# Streamlit in Snowflake warehouse runtime - it raises
+# "ImportError: background_gradient requires matplotlib" at render time.
+# Computing the shade here keeps the visual with no extra package.
+# ---------------------------------------------------------------------
+def heat_css(df, rgb):
+    hi = max(float(df.to_numpy().max()), 1.0)
+
+    def css(v):
+        alpha = 0.06 + 0.74 * (float(v) / hi)
+        return (f"background-color: rgba({rgb},{alpha:.3f}); "
+                f"color: {'white' if alpha > 0.55 else 'inherit'}")
+
+    return pd.DataFrame([[css(v) for v in row] for row in df.to_numpy()],
+                        index=df.index, columns=df.columns)
+
 
 DB = "GSI_TAX_WORKSHOP"
 
@@ -2445,7 +2463,7 @@ with tab_heat:
     grid = heat.pivot(index="ENTITY_NAME", columns="TAX_PERIOD",
                       values="EXCEPTION_LINES").fillna(0).astype(int)
     st.dataframe(
-        grid.style.background_gradient(cmap="Blues", axis=None),
+        grid.style.apply(heat_css, rgb="17,86,127", axis=None),
         use_container_width=True, height=460
     )
     st.caption("Read it across for a period that went wrong everywhere, "
@@ -2509,8 +2527,7 @@ with tab_ai:
 
 <h3>What the fourth tab changes about the reviewer's job</h3>
 
-<p>The first three tabs answer <em>what is wrong</em>. The fourth answers <em>why</em>, and it
-does so in the order that matters: the generated working paper first, the rule that produced the
+<p>The fourth tab answers <em>why</em>, and it does so in the order that matters: the generated working paper first, the rule that produced the
 treatment immediately beneath it, and the variance and counterparty to the side. A reviewer can
 form a view without leaving the screen or writing a query, and the rule identifier means the
 sentence they are reading is traceable to a row in <code>TAX.TAX_RULE_DETERMINATION</code> that
@@ -2523,7 +2540,7 @@ is a governance conversation rather than a Streamlit one. Swap the dictionary fo
 <code>INSERT</code> into an <code>AUDIT</code> schema table when you build this for a client,
 and note that the decision is then evidence and has to be retained accordingly.</p></div></div>
 
-<div class="info-box warning"><span class="icon">⚠️</span><div><strong>Why every query here is an aggregate or a bounded read</strong><p>Nothing in this app returns a row per ledger line. The tiles and the heatmap are
+<div class="info-box warning"><span class="icon">⚠️</span><div><strong>Why nothing here returns a row per ledger line</strong><p>Nothing in this app returns a row per ledger line. The tiles and the heatmap are
 <code>GROUP BY</code> aggregates, the reconciliation reads a 532-row view, the register carries
 an explicit <code>LIMIT</code> that the user controls, and the AI queue is the 25 rows Step 4
 bounded. Drop the <code>LIMIT</code> from the register and Streamlit will attempt to
@@ -2531,7 +2548,7 @@ materialise 253,394 rows in the browser — the warehouse will cope, and the fro
 <code>@st.cache_data(ttl=600)</code> on every loader means the ten minutes after the first
 click cost no compute at all.</p></div></div>
 
-<div class="info-box success"><span class="icon">✅</span><div><strong>Where you are</strong><p>One application, four tabs, over a governed ledger: the group position, the reconciliation
+<div class="info-box success"><span class="icon">✅</span><div><strong>One application, four tabs</strong><p>The group position, the reconciliation
 against what was lodged, the exception register ranked by risk, and a review queue where the
 explanation is already written. The tax team never sees the SQL, and every number on the screen
 traces back to a rule row and a source document reference.</p></div></div>
@@ -2559,7 +2576,7 @@ tell which of the two to reach for.</p>
     <li>Write tool descriptions that make the routing decision unambiguous.</li>
 </ul>
 
-<h3>Block 1 — the supplier-risk view</h3>
+<h3>The supplier-risk view</h3>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>CREATE OR REPLACE VIEW AGENTS.V_SUPPLIER_RISK AS
 WITH ledger AS (
@@ -2708,17 +2725,19 @@ until the retention period expires. Past that point the objects, the 2.4 million
 the rule tables and every view over them are gone with no recovery path. Run this only when you
 have finished with the environment. If you want to keep the work and stop the compute cost, run
 <code>ALTER WAREHOUSE GSI_TAX_WH SUSPEND;</code> instead and leave the databases in place — a
-suspended warehouse consumes no credits, and the storage cost of 57 MB is negligible.</p></div></div>
+suspended warehouse consumes no credits, and under a gigabyte of storage costs cents a month.</p></div></div>
 
-<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- Drop the share first. A share cannot be dropped implicitly with the
--- database it grants on, and leaving it behind leaves a dangling grant.
-DROP SHARE IF EXISTS GSI_TAX_AUDIT_SHARE;
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- Drop the share FIRST. A share cannot be dropped implicitly with the database
+-- it grants on, and while it exists the database cannot be dropped at all:
+-- "cannot be dropped. It is still shared by 1 shares". This is the share
+-- Lab 1 Step 8 creates.
+DROP SHARE IF EXISTS GST_AUDIT_SNAPSHOT_SHARE;
 
--- The scenario clone from Lab 1 Optional. Harmless if it was already dropped
+-- The scenario clone from Lab 1 Step 7. Harmless if it was already dropped
 -- at the end of that step, or never created.
 DROP DATABASE IF EXISTS GSI_TAX_SCENARIO;
 
--- The workshop itself: all seven schemas, the Dynamic Table, every view,
+-- The workshop itself: all seven schemas, both Dynamic Tables, every view,
 -- the rule tables and the Streamlit app object.
 DROP DATABASE IF EXISTS GSI_TAX_WORKSHOP;
 
@@ -2741,7 +2760,7 @@ any semantic view you created through <strong>AI &amp; ML &rarr; Cortex Analyst<
 An agent left pointing at a dropped semantic view will not cost anything, but it will fail
 confusingly for the next person who finds it.</p></div></div>
 
-<div class="info-box success"><span class="icon">✅</span><div><strong>What you take with you</strong><p>The environment is disposable; the pattern is not. Three source systems conformed into one
+<div class="info-box success"><span class="icon">✅</span><div><strong>What you take with you</strong><p>Three source systems conformed into one
 ledger that holds no tax logic, an effective-dated rule set the tax team owns, a determination
 layer thin enough to audit, exceptions ranked by risk, and language models supplying the
 attributes the rules were missing rather than replacing the rules. Rebuild it against your

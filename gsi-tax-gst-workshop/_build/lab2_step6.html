@@ -18,12 +18,12 @@ and nothing else. That is deliberate, not an oversight. A Dynamic Table cannot r
 whose lineage contains another Dynamic Table — Snowflake rejects it with <code>Dynamic Tables do
 not support reading from views containing objects of type DYNAMIC_TABLE</code>. Because
 <code>TAX.V_GST_EXCEPTIONS</code> reads <code>TAX.V_GST_DETERMINED</code>, which reads
-<code>CURATED.GL_HARMONISED</code>, and that is the workshop's one Dynamic Table, none of those
+<code>CURATED.GL_HARMONISED</code>, which is a Dynamic Table, none of those
 three objects can appear below. Point this at <code>V_GST_EXCEPTIONS</code> and the
 <code>CREATE</code> fails at compile time. The AI calls are therefore inlined over the base
 document table directly.</p></div></div>
 
-<h3>Block 1 — write the model output down once</h3>
+<h3>Write the model output down once</h3>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>CREATE OR REPLACE DYNAMIC TABLE AI_INSIGHTS.DT_AI_EXCEPTION_REVIEW
     TARGET_LAG = '24 hours'
@@ -127,7 +127,7 @@ month is not going to change, so there is nothing to be gained by re-reading it 
 <code>ALTER DYNAMIC TABLE AI_INSIGHTS.DT_AI_EXCEPTION_REVIEW REFRESH;</code> if you want to
 force one immediately.</p></div></div>
 
-<h3>Block 2 — read it, and confirm no model ran</h3>
+<h3>Read it, and confirm no model ran</h3>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- 1. The review queue, highest-interest documents first. This is now an
 --    ordinary table read: 25 rows off storage, no model invocation, no
@@ -145,7 +145,7 @@ LIMIT 10;
 -- 2. What Snowflake decided to do with your declaration.
 SHOW DYNAMIC TABLES IN SCHEMA AI_INSIGHTS;</code></pre></div>
 
-<p>Run statement 1 twice and watch the elapsed time. Then compare it against Step 4 Block 3,
+<p>Run statement 1 twice and watch the elapsed time. Then compare it against the equivalent query in Step 4,
 which asked the same question of the view: there, each execution queued 25 prompts, waited for
 25 completions and paid for every token in both directions. Here the text was generated once
 and is now being read, which is why the second execution is quicker still — Snowflake serves it
@@ -168,7 +168,7 @@ this object and it costs nothing here, because a full refresh of 25 documents is
 a day. It is also the reason the bounding <code>LIMIT</code> matters: whatever the population
 is, the refresh will process all of it.</p>
 
-<div class="info-box success"><span class="icon">✅</span><div><strong>The production shape</strong><p>Classify and draft on arrival, write the answer down, and let everything downstream read the
+<div class="info-box success"><span class="icon">✅</span><div><strong>Generate on arrival, read from storage</strong><p>Classify and draft on arrival, write the answer down, and let everything downstream read the
 stored text. The generated narrative in this table carries <code>DOC_ID</code>,
 <code>SOURCE_SYSTEM</code> and <code>SOURCE_DOC_REF</code>, so it still joins back to the
 ledger and to the exception register — the audit trail survives being written down. What

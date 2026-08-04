@@ -1,0 +1,54 @@
+<div class="beat" data-beat="business">
+<p><strong>Rebuilding 2.4 million ledger lines to re-test one AI function is a waste of your morning.</strong>
+Lab 2 builds eight views, a semantic view, an AI Dynamic Table and an agent, and every one of them sits
+on top of data that has not changed. This clears Lab 2 and leaves the ledger alone, so you can re-run
+Lab 2 in about two minutes instead of five.</p>
+</div>
+
+<div class="beat" data-beat="decision">
+<p><strong>Drop the two schemas rather than name the objects.</strong> Lab 2's output lives entirely in
+<code>AI_INSIGHTS</code> and <code>AGENTS</code>, so dropping and recreating both is shorter than
+listing eight views and safer than trying to keep the list current as the lab changes. The agent is
+dropped explicitly first, because an agent created through Snowsight is not always removed with its
+schema.</p>
+</div>
+
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>USE WAREHOUSE GSI_TAX_WH;
+USE DATABASE GSI_TAX_WORKSHOP;
+
+-- The agent first. It is not always removed with the schema it lives in.
+DROP AGENT IF EXISTS AGENTS.GST_COMPLIANCE_AGENT;
+
+-- Everything Lab 2 creates lives in these two schemas: the four AI views, the
+-- AI Dynamic Table, the wide intelligence view, the supplier-risk view and the
+-- semantic view. Dropping and recreating both is cleaner than naming them.
+DROP SCHEMA IF EXISTS AI_INSIGHTS;
+DROP SCHEMA IF EXISTS AGENTS;
+CREATE SCHEMA AI_INSIGHTS;
+CREATE SCHEMA AGENTS;
+
+-- Confirm Lab 1 is untouched and Lab 2 is gone.
+SELECT 'Lab 1 ledger'          AS LAYER,
+       TO_VARCHAR(COUNT(*), '9,999,999') AS ROWS_PRESENT,
+       'keep'                  AS EXPECTED
+FROM CURATED.GL_HARMONISED
+UNION ALL
+SELECT 'Lab 2 objects',
+       (SELECT COUNT(*)::VARCHAR FROM INFORMATION_SCHEMA.TABLES
+        WHERE TABLE_SCHEMA IN ('AI_INSIGHTS','AGENTS')),
+       '0';</code></pre></div>
+
+<div class="beat" data-beat="prove">
+<p><strong>The ledger still reads 2,400,000 and Lab 2 is empty.</strong> Open
+<code>gsi_tax_lab2_cortex_ai.ipynb</code> and run it from the top. Nothing in setup or Lab 1 needs
+re-running.</p>
+</div>
+
+<div data-surface="guide">
+<h3>Why this is the section you will use most</h3>
+<p>Lab 2 is the part of the workshop most likely to need a second attempt: prompts get tuned, the
+semantic view gets better synonyms, the agent gets rebuilt with different instructions. None of that
+work touches the conformed ledger or the rule tables, so regenerating them is pure waiting. Resetting
+only Lab 2 turns a five-minute rebuild into a two-minute one, and it removes the temptation to leave
+half-built AI objects lying around because a full rebuild felt too expensive.</p>
+</div>

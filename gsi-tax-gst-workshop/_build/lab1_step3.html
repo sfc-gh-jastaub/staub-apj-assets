@@ -9,7 +9,7 @@ and the data-quality problems labelled rather than hidden.</p>
     <li>Build one Dynamic Table that keeps itself up to date as the source systems change.</li>
 </ul>
 
-<h3>Block 1 — the date problem, and the one-word fix</h3>
+<h3>Where strict parsing falls over</h3>
 
 <p>The legacy AP system stores its document date as text in <code>DD/MM/YYYY</code>. About 2% of
 those 400,000 values cannot be parsed at all: some are <code>'N/A'</code>, some are empty strings,
@@ -59,8 +59,8 @@ does not exist. A calendar-aware parser catches it; pattern matching never will.
 tells you where it is not. In a tax pipeline the second behaviour is the only defensible one: a
 line you cannot date is a line whose treatment you cannot determine, and you need it visible in an
 exception report rather than absent from a return. Every <code>TRY_TO_*</code> function in Snowflake
-behaves the same way, and this pattern is the single most immediately useful thing many attendees
-will take home.</p></div></div>
+behaves the same way, and this is the pattern most people take
+straight back to their own work.</p></div></div>
 
 <h3>What has to be conformed, and why</h3>
 
@@ -108,7 +108,7 @@ entity carrying all three identifiers — <code>SAP_BUKRS</code>, <code>ORACLE_L
 on a single pair of columns instead of carrying a three-branch <code>OR</code> condition. One group
 entity, three names, resolved in one place.</p>
 
-<h3>Block 2 — build the governed ledger</h3>
+<h3>Build the governed ledger</h3>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>CREATE OR REPLACE DYNAMIC TABLE CURATED.GL_HARMONISED
     TARGET_LAG = '1 hour'
@@ -217,13 +217,13 @@ result you wanted; Snowflake works out how to keep it true.</p></div></div>
 <p>Three things worth doing on screen before you move on, none of which needs a query.
 First, open <strong>Monitoring &rarr; Dynamic Tables</strong> in Snowsight: the refresh history and
 the dependency graph are already there, because the pipeline draws its own diagram.
-Second, when you run Block 3 below, open the <strong>Query Profile</strong> tab on the result — a
+Second, when you run the verification query below, open the <strong>Query Profile</strong> tab on the result — a
 visual execution plan with partition pruning statistics, for free, on a query you were running
 anyway.
-Third, run Block 3 a second time: it returns instantly from the result cache and consumes no
+Third, run that verification query a second time: it returns instantly from the result cache and consumes no
 compute at all.</p>
 
-<h3>Block 3 — one query that verifies the whole build</h3>
+<h3>One query that verifies the whole build</h3>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>SELECT COUNT(*)                                                    AS TOTAL_ROWS,
        COUNT(DISTINCT GL_LINE_ID)                                  AS DISTINCT_LINES,
@@ -253,7 +253,7 @@ it moves before anyone notices that the GST total has grown. Keep it in the veri
 permanently. That 3.23% unmapped is roughly 77,500 lines whose supply category is unknown; you will
 see them again in Step 4 as the largest single category in the exception register.</p></div></div>
 
-<h3>Block 4 — inspect the object you created</h3>
+<h3>Inspect the object you created</h3>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>SHOW DYNAMIC TABLES IN SCHEMA CURATED;</code></pre></div>
 
@@ -264,6 +264,6 @@ so read what it reports rather than assuming a value. <code>TARGET_LAG</code> is
 objective, not a schedule: it is a promise about how stale the data may become, not an instruction
 to run at a fixed time.</p>
 
-<div class="info-box success"><span class="icon">✅</span><div><strong>Where you are</strong><p>One governed ledger, 2,400,000 lines, three source systems, four dimensions resolved and four
+<div class="info-box success"><span class="icon">✅</span><div><strong>One ledger, and no tax logic in it</strong><p>One governed ledger, 2,400,000 lines, three source systems, four dimensions resolved and four
 data-quality conditions labelled. It contains no tax logic whatsoever — and that is what makes the
 next step possible.</p></div></div>

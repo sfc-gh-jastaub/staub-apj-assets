@@ -1,0 +1,47 @@
+<div class="beat" data-beat="business">
+<p><strong>Check before you teach.</strong> A workshop that fails on step three because a table is
+short 400,000 rows wastes everyone's morning. One query confirms every object exists with the row count
+the labs expect.</p>
+</div>
+
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- ---------------------------------------------------------------------
+-- VERIFICATION — object names and row counts.
+-- Expected: 1,200,000 / 800,000 / 400,000 / 14 / 180 / 2,000 / 532 /
+--           300 / 16 / 19
+-- ---------------------------------------------------------------------
+SELECT 'RAW_DATA.ERP_SAP_GL'          AS OBJECT_NAME, COUNT(*) AS ROW_COUNT FROM RAW_DATA.ERP_SAP_GL
+UNION ALL SELECT 'RAW_DATA.ERP_ORACLE_GL',      COUNT(*) FROM RAW_DATA.ERP_ORACLE_GL
+UNION ALL SELECT 'RAW_DATA.ERP_LEGACY_AP',      COUNT(*) FROM RAW_DATA.ERP_LEGACY_AP
+UNION ALL SELECT 'RAW_DATA.DIM_LEGAL_ENTITY',   COUNT(*) FROM RAW_DATA.DIM_LEGAL_ENTITY
+UNION ALL SELECT 'RAW_DATA.DIM_ACCOUNT_MAPPING',COUNT(*) FROM RAW_DATA.DIM_ACCOUNT_MAPPING
+UNION ALL SELECT 'RAW_DATA.DIM_SUPPLIER',       COUNT(*) FROM RAW_DATA.DIM_SUPPLIER
+UNION ALL SELECT 'RAW_DATA.FCT_BAS_LODGED',     COUNT(*) FROM RAW_DATA.FCT_BAS_LODGED
+UNION ALL SELECT 'RAW_DATA.DOC_TAX_INVOICE',    COUNT(*) FROM RAW_DATA.DOC_TAX_INVOICE
+UNION ALL SELECT 'TAX.TAX_RULE_DETERMINATION',  COUNT(*) FROM TAX.TAX_RULE_DETERMINATION
+UNION ALL SELECT 'TAX.TAX_RULE_RATE',           COUNT(*) FROM TAX.TAX_RULE_RATE
+ORDER BY OBJECT_NAME;</code></pre></div>
+
+<div class="beat" data-beat="prove">
+<p><strong>Ten rows, and every count matches.</strong> If one does not, rerun the step that builds it
+&mdash; the generators are all <code>CREATE OR REPLACE</code>, so rerunning is safe and produces
+identical data.</p>
+</div>
+
+<table class="data-table">
+<thead><tr><th>Object</th><th>Expected rows</th></tr></thead>
+<tbody>
+<tr><td><code>RAW_DATA.ERP_SAP_GL</code></td><td>1,200,000</td></tr>
+<tr><td><code>RAW_DATA.ERP_ORACLE_GL</code></td><td>800,000</td></tr>
+<tr><td><code>RAW_DATA.ERP_LEGACY_AP</code></td><td>400,000</td></tr>
+<tr><td><code>RAW_DATA.DIM_LEGAL_ENTITY</code></td><td>14</td></tr>
+<tr><td><code>RAW_DATA.DIM_ACCOUNT_MAPPING</code></td><td>180</td></tr>
+<tr><td><code>RAW_DATA.DIM_SUPPLIER</code></td><td>2,000</td></tr>
+<tr><td><code>RAW_DATA.FCT_BAS_LODGED</code></td><td>532</td></tr>
+<tr><td><code>RAW_DATA.DOC_TAX_INVOICE</code></td><td>300</td></tr>
+<tr><td><code>TAX.TAX_RULE_DETERMINATION</code></td><td>16</td></tr>
+<tr><td><code>TAX.TAX_RULE_RATE</code></td><td>19</td></tr>
+</tbody>
+</table>
+
+<div class="info-box success"><span class="icon">&#9989;</span><div><strong>Ready</strong><p>Open <code>gsi_tax_lab1_foundation.ipynb</code> and start Lab 1. Leave this notebook alone unless you
+need to rebuild &mdash; nothing in the labs depends on running it again.</p></div></div>

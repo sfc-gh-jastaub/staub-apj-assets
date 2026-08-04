@@ -8,7 +8,7 @@ control the moment it is sent and is stale before it arrives. There is a better 
     <li>Understand why no data is copied and why access remains revocable.</li>
 </ul>
 
-<h3>Block 1 — create the share and grant it the snapshot only</h3>
+<h3>Create the share and grant it the snapshot only</h3>
 
 <p>Read the grant chain carefully. Usage on the database, usage on the <code>AUDIT</code> schema,
 select on one table. There is no grant on <code>RAW_DATA</code>, none on <code>CURATED</code> and
@@ -17,7 +17,7 @@ are all outside the share. The auditor sees the snapshot and nothing else.</p>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>USE ROLE ACCOUNTADMIN;
 
-CREATE SHARE GST_AUDIT_SNAPSHOT_SHARE
+CREATE OR REPLACE SHARE GST_AUDIT_SNAPSHOT_SHARE
   COMMENT = 'As-lodged GL snapshot for external audit. Read only.';
 
 -- Usage on the container objects. This grants the ability to see the
@@ -30,7 +30,7 @@ GRANT USAGE ON SCHEMA   GSI_TAX_WORKSHOP.AUDIT  TO SHARE GST_AUDIT_SNAPSHOT_SHAR
 GRANT SELECT ON TABLE GSI_TAX_WORKSHOP.AUDIT.GL_AS_LODGED_20260803
   TO SHARE GST_AUDIT_SNAPSHOT_SHARE;</code></pre></div>
 
-<h3>Block 2 — verify what the consumer can actually see</h3>
+<h3>Verify what the consumer can actually see</h3>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>SHOW GRANTS TO SHARE GST_AUDIT_SNAPSHOT_SHARE;</code></pre></div>
 

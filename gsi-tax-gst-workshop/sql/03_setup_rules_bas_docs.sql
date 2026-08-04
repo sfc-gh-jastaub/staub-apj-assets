@@ -148,7 +148,7 @@ LEFT JOIN TAX.TAX_RULE_RATE rt
       AND d.TAX_PERIOD BETWEEN rt.VALID_FROM AND rt.VALID_TO;
 
 -- ---------------------------------------------------------------------
--- FCT_BAS_LODGED — 10 AU entities x every complete month in the window.
+-- FCT_BAS_LODGED — all 14 AU entities x every complete month in the window.
 -- ~8 entity-periods deliberately distorted (deterministic via HASH).
 -- ---------------------------------------------------------------------
 CREATE OR REPLACE TABLE RAW_DATA.FCT_BAS_LODGED AS

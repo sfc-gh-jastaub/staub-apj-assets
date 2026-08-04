@@ -1,0 +1,70 @@
+<div class="beat" data-beat="business">
+<p><strong>This clears everything Lab 1 built but keeps the 2.4 million rows setup generated.</strong>
+The conformed ledger, the determination and reconciliation views, the exception register, the audit
+snapshots and the share all go. <code>RAW_DATA</code> and the two tax rule tables stay, so you can
+re-run Lab 1 without regenerating data.</p>
+</div>
+
+<div class="beat" data-beat="decision">
+<p><strong>Two repairs matter more than the drops.</strong> Lab 1 Step 5 posts a backdated adjustment
+with a fixed document number, and Step 4 raises the reverse-charge rate to 15% before putting it back.
+Neither is idempotent: run Lab 1 twice without clearing them and you stack a second adjustment onto the
+same entity-period, or leave the rate at 15% if a run stopped midway. Both are undone below, which is
+what makes a re-run behave like a first run.</p>
+</div>
+
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>USE WAREHOUSE GSI_TAX_WH;
+USE DATABASE GSI_TAX_WORKSHOP;
+
+-- The share pins the database it grants on, so it always goes first.
+DROP SHARE IF EXISTS GST_AUDIT_SNAPSHOT_SHARE;
+
+-- The scenario clone from the optional modelling step.
+DROP DATABASE IF EXISTS GSI_TAX_SCENARIO;
+
+-- Lab 1's views. The two rule tables are NOT dropped: setup owns those, and the
+-- whole point of this section is to avoid regenerating anything setup made.
+DROP VIEW IF EXISTS TAX.V_GST_EXCEPTIONS;
+DROP VIEW IF EXISTS TAX.V_GST_VS_BAS;
+DROP VIEW IF EXISTS TAX.V_GST_DETERMINED;
+DROP TABLE IF EXISTS TAX.STG_RULE_UPDATE;
+
+-- The conformed ledger, the audit snapshots and the Streamlit app. Dropping the
+-- schemas also clears the date-stamped snapshot clones without naming them.
+DROP SCHEMA IF EXISTS CURATED;
+DROP SCHEMA IF EXISTS AUDIT;
+DROP SCHEMA IF EXISTS APPS;
+CREATE SCHEMA CURATED;
+CREATE SCHEMA AUDIT;
+CREATE SCHEMA APPS;
+
+-- Repair 1: remove the backdated adjustment so a re-run posts exactly one.
+DELETE FROM RAW_DATA.ERP_SAP_GL WHERE BELNR = 'SAP9900001';
+
+-- Repair 2: put the reverse-charge rate back to the Australian 10% in case a
+-- run stopped between the two UPDATE statements in Step 4.
+UPDATE TAX.TAX_RULE_RATE
+   SET RATE_PCT = 10.00
+ WHERE JURISDICTION = 'AU'
+   AND TAX_TREATMENT = 'REVERSE_CHARGE'
+   AND RATE_PCT &lt;&gt; 10.00;
+
+-- Confirm setup survived and Lab 1 is gone.
+SELECT 'SAP ledger rows'    AS CHECK_NAME, TO_VARCHAR(COUNT(*), '9,999,999') AS VALUE, '1,200,000' AS EXPECTED
+FROM RAW_DATA.ERP_SAP_GL
+UNION ALL
+SELECT 'determination rules', COUNT(*)::VARCHAR, '16' FROM TAX.TAX_RULE_DETERMINATION
+UNION ALL
+SELECT 'AU reverse-charge rate',
+       (SELECT LISTAGG(DISTINCT RATE_PCT::VARCHAR, ',') FROM TAX.TAX_RULE_RATE
+        WHERE JURISDICTION = 'AU' AND TAX_TREATMENT = 'REVERSE_CHARGE'), '10.00'
+UNION ALL
+SELECT 'Lab 1 objects left',
+       (SELECT COUNT(*)::VARCHAR FROM INFORMATION_SCHEMA.TABLES
+        WHERE TABLE_SCHEMA IN ('CURATED','AUDIT','APPS')), '0';</code></pre></div>
+
+<div class="beat" data-beat="prove">
+<p><strong>1,200,000 SAP rows and 16 rules still there, the rate back at 10.00, and Lab 1's own objects
+gone.</strong> Open <code>gsi_tax_lab1_foundation.ipynb</code> and run it from the top. This also
+clears Lab 2, because Lab 2 reads the views you just dropped &mdash; run Lab 1 first, then Lab 2.</p>
+</div>

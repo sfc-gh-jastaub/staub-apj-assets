@@ -15,7 +15,7 @@ it stood when we lodged.</em></p>
     <li>Undo a <code>DROP TABLE</code> you should not have run.</li>
 </ul>
 
-<h3>Block 1 — build the reconciliation and run it</h3>
+<h3>Build the reconciliation and run it</h3>
 
 <p>The view below is deliberately conservative in three places. It restricts to
 <code>JURISDICTION = 'AU'</code>, because the lodged data is Australian BAS. It excludes the
@@ -23,6 +23,12 @@ current, incomplete month, which has no lodged BAS yet and would otherwise appea
 variance every time the workshop is run. And it uses a <code>FULL OUTER JOIN</code>, so a period
 that exists on one side only still appears rather than vanishing — a lodged period with no computed
 lines is exactly as interesting as the reverse.</p>
+
+<p>It also tiers into three bands, not two: variance within $100 is <code>MATCHED</code>, within
+$1,000 is <code>REVIEW</code>, and anything larger is <code>INVESTIGATE</code>. Nothing lands in
+<code>REVIEW</code> with this data, and that is worth noticing — the variances here are either exactly
+nil or run to hundreds of thousands. Real client ledgers are rarely so tidy, which is why the middle
+band is there.</p>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>CREATE OR REPLACE VIEW TAX.V_GST_VS_BAS AS
 WITH computed AS (
@@ -80,25 +86,28 @@ ORDER BY TOTAL_ABS_VARIANCE DESC;</code></pre></div>
         <tr><th>Recon status</th><th>Entity-periods</th><th>What it means</th></tr>
     </thead>
     <tbody>
-        <tr><td><code>MATCHED</code></td><td><strong>514</strong></td><td>Variance of exactly <strong>$0.00</strong>. Not "within tolerance" — nil.</td></tr>
-        <tr><td><code>INVESTIGATE</code></td><td><strong>18</strong></td><td>Variance above $1,000. These are the conversation.</td></tr>
+        <tr><td><code>MATCHED</code></td><td><strong>500</strong></td><td>Variance of exactly <strong>$0.00</strong>. Not "within tolerance" — nil.</td></tr>
+        <tr><td><code>INVESTIGATE</code></td><td><strong>32</strong></td><td>Variance above $1,000. These are the conversation.</td></tr>
         <tr><td colspan="2"><strong>532 entity-periods</strong></td><td>Fourteen entities across thirty-eight complete months.</td></tr>
     </tbody>
 </table>
 
-<p>Read the 514 first. Two independently produced numbers — one computed from 2,400,000 ledger lines
-through a rule set the tax team owns, one lodged with the ATO months or years ago — agree to the
-cent for 514 of 532 entity-periods. That is the evidence that the pipeline is right, and it is what
-makes the remaining 18 credible. A reconciliation that flags everything tells you nothing; this one
-flags 3.4% of periods and can defend the other 96.6%.</p>
+<div class="beat" data-beat="prove">
+<p><strong>500 of 532 entity-periods agree to the cent.</strong> Two independently produced numbers —
+one computed from 2,400,000 ledger lines through a rule set the tax team owns, one lodged with the ATO
+months or years ago — and the variance is exactly nil, not "within tolerance". That agreement is the
+evidence the pipeline is right, and it is what makes the remaining 32 worth taking seriously. A
+reconciliation that flags everything tells you nothing; this one flags 6% of periods and defends the
+other 94%.</p>
+</div>
 
-<div class="info-box"><span class="icon">💡</span><div><strong>This is the moment the pipeline pays for itself</strong><p>Every step so far was investment: conforming three ERPs, resolving entities, externalising the
+<div class="info-box"><span class="icon">💡</span><div><strong>What the earlier steps were for</strong><p>Every step so far was investment: conforming three ERPs, resolving entities, externalising the
 rules. This single query is the return. It answers <em>"is our lodged position defensible?"</em>
 across the whole group, at line-level granularity, in seconds — and it will answer it again
-tomorrow without anyone touching it. Ask the room how long that reconciliation takes them today,
+tomorrow without anyone touching it. Compare that against how long the same reconciliation takes today,
 and for how many entities.</p></div></div>
 
-<h3>Block 2 — the adjustment lands</h3>
+<h3>The adjustment lands</h3>
 
 <p>Now the realistic complication. Somebody in the business posts a backdated journal against a
 period that was lodged six months ago. They are not doing anything wrong: late invoices, accruals
@@ -142,7 +151,7 @@ fact. The ledger underneath it is not: it keeps moving. Any reconciliation that 
 today's ledger and compares against a return lodged months ago will drift, and the drift is not an
 error — it is the adjustment. What you need is the ability to see both positions.</p></div></div>
 
-<h3>Block 3 — the as-lodged position, in one clause</h3>
+<h3>The as-lodged position, in one clause</h3>
 
 <p>The auditor's question is now live: <em>show me the ledger exactly as it stood when we
 lodged.</em> The answer is not a backup, a restore, a snapshot table somebody remembered to
@@ -161,7 +170,7 @@ WHERE ENTITY_ID  = 'ENT001'
 up a copy, you did not go looking for last quarter's extract, and you did not ask anyone's
 permission. You added eighteen characters to a query you already had.</p>
 
-<h3>Block 4 — freeze the evidence, then break it and get it back</h3>
+<h3>Freeze the evidence, break it, get it back</h3>
 
 <p>Time Travel answers the question in the moment. The auditor wants something they can come back
 to next month, so freeze it: a clone of the ledger as it stood before the adjustment, named for the
@@ -169,7 +178,7 @@ date it was taken, in a schema that exists for exactly this purpose.</p>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- An immutable, named snapshot of the whole 2,400,000-line ledger
 -- as it stood at the moment before the adjustment was posted.
-CREATE TABLE AUDIT.GL_AS_LODGED_20260803 CLONE CURATED.GL_HARMONISED AT(TIMESTAMP =&gt; $pre_adjustment);
+CREATE OR REPLACE TABLE AUDIT.GL_AS_LODGED_20260803 CLONE CURATED.GL_HARMONISED AT(TIMESTAMP =&gt; $pre_adjustment);
 
 SELECT COUNT(*) AS SNAPSHOT_LINES FROM AUDIT.GL_AS_LODGED_20260803;
 
@@ -184,10 +193,9 @@ SELECT COUNT(*) AS STILL_HERE FROM AUDIT.GL_AS_LODGED_20260803;</code></pre></di
 <div class="info-box success"><span class="icon">⚡</span><div><strong>Zero-copy cloning — what just happened, and what it cost</strong><p>You took an immutable snapshot of a <strong>2,400,000-row ledger</strong>. It completed instantly
 and it consumed <strong>no storage</strong>, because a clone copies metadata rather than data — the
 two objects share the same underlying micro-partitions until one of them diverges, and you pay only
-for what subsequently changes. Ask the room what that operation would cost them today: how long to
-extract 2.4 million rows, where it would be written, who would approve the disk, and who would
-remember it exists in eighteen months when the audit actually lands. Then let the silence do the
-work.</p></div></div>
+for what subsequently changes. Worth costing that the way you would have to today: how long to
+extract 2.4 million rows, where they would be written, who approves the disk, and who remembers the
+extract exists in eighteen months when the audit actually lands.</p></div></div>
 
 <p>The wider point is that none of this required a backup strategy, a restore procedure, or a
 conversation with IT. There was no data protection design decision to make in advance, no retention
@@ -195,7 +203,7 @@ policy to negotiate, and no recovery runbook to test. Time Travel, cloning and <
 are properties of the platform — they are true of every table in the account, whether or not anybody
 planned for them.</p>
 
-<h3>Block 5 — the visual close, with no new SQL</h3>
+<h3>The visual close, with no new SQL</h3>
 
 <p>Re-run the reconciliation, then read it as a picture rather than a grid. There is no charting
 library to install and no new query to write.</p>
@@ -226,7 +234,10 @@ tool, an export or a licence means the distance from question to defensible pict
 clicks — and the optional Streamlit step turns the same two views into a shareable application
 without leaving Snowflake.</p></div></div>
 
-<h3>What you built</h3>
+<h3>What the environment now holds</h3>
+
+<p>The <code>RAW_DATA</code> and <code>TAX</code> rule tables came from setup. Everything from
+<code>CURATED.GL_HARMONISED</code> down you built in this lab.</p>
 
 <table class="data-table">
     <thead>
@@ -251,7 +262,7 @@ without leaving Snowflake.</p></div></div>
 </table>
 
 <p>Four objects of your own creation on top of the source data, one of which is a Dynamic Table and
-three of which are views — and a reconciliation that ties to the cent for 514 of 532
+three of which are views — and a reconciliation that ties to the cent for 500 of 532
 entity-periods. There are three optional steps below: a Streamlit control tower over these two
 views, a scenario-modelling exercise on a cloned database, and a secure share of the audit snapshot.
 Lab 2 takes the same objects into Cortex AI — classification, extraction and a Cortex Agent your

@@ -1,604 +1,58 @@
-<p>Your client's tax function spends most of its working year finding, cleaning and
-reconciling data before any analysis begins. We are going to skip the part where that takes six
-weeks. One script, one paste, and you will have three ERP extracts that describe the same
-business in three incompatible shapes.</p>
+<div class="beat" data-beat="business">
+<p><strong>What the tax practice is up against.</strong> The group has three general ledgers, inherited
+from a decade of acquisitions. A partner will shortly ask what the group's GST position is. Before you
+can even attempt that, you need to see what the three systems actually send &mdash; because they do not
+describe the business the same way.</p>
+</div>
 
-<h3>Build the environment and land the extracts</h3>
+<p>First confirm the setup notebook has run and left you a complete foundation.</p>
 
-<p>Run the whole script in one go — a single SQL cell if you are in the notebook, or a single
-paste into a Snowsight worksheet. It creates the warehouse, the
-database, seven schemas, all eight <code>RAW_DATA</code> tables, the two tax rule tables, and
-finishes with a verification query. Nothing else needs to be typed.</p>
-
-<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- =====================================================================
--- GSI TAX WORKSHOP — LAB 1 STEP 1 SETUP
--- Builds warehouse, database, 7 schemas and all 8 RAW_DATA tables.
--- Target: 2,400,000 GL lines. Runtime target: under 2 minutes on SMALL.
--- =====================================================================
-
-CREATE WAREHOUSE IF NOT EXISTS GSI_TAX_WH
-    WAREHOUSE_SIZE = 'SMALL'
-    AUTO_SUSPEND = 60
-    AUTO_RESUME = TRUE
-    INITIALLY_SUSPENDED = FALSE;
-
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- Point the session at the workshop, then confirm the foundation is complete.
+-- Every STATUS must read OK. If one does not, run gsi_tax_lab0_setup.ipynb.
 USE WAREHOUSE GSI_TAX_WH;
-
-CREATE OR REPLACE DATABASE GSI_TAX_WORKSHOP;
 USE DATABASE GSI_TAX_WORKSHOP;
 
-CREATE SCHEMA IF NOT EXISTS RAW_DATA;
-CREATE SCHEMA IF NOT EXISTS CURATED;
-CREATE SCHEMA IF NOT EXISTS TAX;
-CREATE SCHEMA IF NOT EXISTS AI_INSIGHTS;
-CREATE SCHEMA IF NOT EXISTS AGENTS;
-CREATE SCHEMA IF NOT EXISTS APPS;
-CREATE SCHEMA IF NOT EXISTS AUDIT;
+SELECT 'Raw tables landed'          AS CHECK_NAME,
+       COUNT(*)::VARCHAR            AS FOUND,
+       '8'                          AS EXPECTED,
+       IFF(COUNT(*) = 8, 'OK', 'run gsi_tax_lab0_setup.ipynb') AS STATUS
+FROM INFORMATION_SCHEMA.TABLES
+WHERE TABLE_SCHEMA = 'RAW_DATA'
 
--- ---------------------------------------------------------------------
--- DIM_LEGAL_ENTITY — 14 rows. The crosswalk: three ERP identifiers,
--- one group entity. NULLs mean the entity does not exist in that system.
--- ---------------------------------------------------------------------
-CREATE OR REPLACE TABLE RAW_DATA.DIM_LEGAL_ENTITY (
-    ENTITY_ID            VARCHAR(10),
-    ENTITY_NAME          VARCHAR(100),
-    ABN                  VARCHAR(14),
-    JURISDICTION         VARCHAR(2),
-    GST_REGISTERED       BOOLEAN,
-    FUNCTIONAL_CURRENCY  VARCHAR(3),
-    SAP_BUKRS            VARCHAR(4),
-    ORACLE_LEDGER_ID     VARCHAR(10),
-    LEGACY_ENTITY_CD     VARCHAR(6)
-);
-
-INSERT INTO RAW_DATA.DIM_LEGAL_ENTITY VALUES
-('ENT001','Southern Cross Industrial Pty Ltd'  ,'51 824 753 556','AU',TRUE,'AUD','1010','LED_2001','AU01'),
-('ENT002','Wattle Grove Logistics Pty Ltd'     ,'47 116 942 308','AU',TRUE,'AUD','1020','LED_2002','AU02'),
-('ENT003','Kurrajong Manufacturing Pty Ltd'    ,'62 903 471 225','AU',TRUE,'AUD','1030','LED_2003','AU03'),
-('ENT004','Boronia Retail Group Pty Ltd'       ,'19 558 260 714','AU',TRUE,'AUD','1040','LED_2004','AU04'),
-('ENT005','Jarrah Point Services Pty Ltd'      ,'83 742 019 631','AU',TRUE,'AUD','1050','LED_2005','AU05'),
-('ENT006','Kingsford Property Holdings Pty Ltd','35 601 887 452','AU',TRUE,'AUD','1060',NULL      ,'AU06'),
-('ENT007','Tallowood Energy Pty Ltd'           ,'74 229 653 108','AU',TRUE,'AUD','1070','LED_2007',NULL ),
-('ENT008','Marrickville Food Co Pty Ltd'       ,'28 470 315 967','AU',TRUE,'AUD',NULL  ,'LED_2008','AU08'),
-('ENT009','Barwon Health Services Pty Ltd'     ,'91 386 724 540','AU',TRUE,'AUD','1090','LED_2009','AU09'),
-('ENT010','Coolibah Finance Pty Ltd'           ,'66 052 918 379','AU',TRUE,'AUD','1100','LED_2010','AU10'),
-('ENT011','Yarra Bend Education Pty Ltd'       ,'12 745 660 283','AU',TRUE,'AUD','1110','LED_2011','AU11'),
-('ENT012','Nullarbor Freight Pty Ltd'          ,'58 913 407 176','AU',TRUE,'AUD',NULL  ,'LED_2012','AU12'),
-('ENT013','Bass Strait Holdings Pty Ltd'       ,'40 268 591 734','AU',TRUE,'AUD','1130','LED_2013',NULL ),
-('ENT014','Perisher Plant Hire Pty Ltd'        ,'77 634 128 905','AU',TRUE,'AUD','1140',NULL      ,'AU14');
-
--- ---------------------------------------------------------------------
--- DIM_ACCOUNT_MAPPING — 180 rows (60 per system).
--- GL uses codes 1..62 per system; mapping covers 1..60.
--- Result: ~3.2% of GL lines have no mapping (an alarming number at
--- 2.4M rows, without drowning the exception register).
--- ---------------------------------------------------------------------
-CREATE OR REPLACE TABLE RAW_DATA.DIM_ACCOUNT_MAPPING AS
-WITH cats AS (
-  SELECT ARRAY_CONSTRUCT(
-    'STANDARD_GOODS','STANDARD_SERVICES','PROFESSIONAL_FEES','ENTERTAINMENT',
-    'RESIDENTIAL_RENT','FINANCIAL_SUPPLY','EXPORT_SALES','FOOD_BASIC',
-    'MEDICAL','EDUCATION','CAPITAL_EQUIPMENT') AS C
-),
-n AS (SELECT SEQ4() + 1 AS I FROM TABLE(GENERATOR(ROWCOUNT =&gt; 60))),
-s AS (SELECT 'SAP' AS SYS UNION ALL SELECT 'ORACLE' UNION ALL SELECT 'LEGACY')
-SELECT
-    ROW_NUMBER() OVER (ORDER BY s.SYS, n.I)                       AS MAPPING_ID,
-    s.SYS                                                          AS SOURCE_SYSTEM,
-    CASE s.SYS
-      WHEN 'SAP'    THEN '4'     || LPAD(n.I::VARCHAR, 5, '0')
-      WHEN 'ORACLE' THEN '5100-' || LPAD(n.I::VARCHAR, 4, '0')
-      ELSE               'AP'    || LPAD(n.I::VARCHAR, 3, '0')
-    END                                                            AS NATIVE_ACCOUNT_CODE,
-    'GL' || LPAD((MOD(n.I - 1, 11) * 10 + 1000)::VARCHAR, 6, '0')  AS GROUP_ACCOUNT_CODE,
-    INITCAP(REPLACE(cats.C[MOD(n.I - 1, 11)]::VARCHAR, '_', ' '))  AS GROUP_ACCOUNT_NAME,
-    cats.C[MOD(n.I - 1, 11)]::VARCHAR                              AS SUPPLY_CATEGORY
-FROM n, s, cats;
-
--- ---------------------------------------------------------------------
--- DIM_SUPPLIER — 2,000 rows. 5% no ABN, 8% not GST registered.
--- ---------------------------------------------------------------------
-CREATE OR REPLACE TABLE RAW_DATA.DIM_SUPPLIER AS
-WITH p AS (
-  SELECT ARRAY_CONSTRUCT('Acacia','Redgum','Bluestone','Harbourside','Pinnacle','Meridian',
-         'Clearwater','Ironbark','Sandstone','Northwind','Fairmont','Brightwater','Stirling',
-         'Camperdown','Glenrowan','Yarraville','Bellevue','Crestwood','Darlington','Eastgate') AS PRE,
-         ARRAY_CONSTRUCT('Supplies','Services','Group','Partners','Holdings','Industries',
-         'Consulting','Logistics','Trading','Systems','Solutions','Contractors','Advisory',
-         'Enterprises','Distributors') AS SUF,
-         ARRAY_CONSTRUCT('AU','AU','AU','AU','AU','AU','AU','AU','AU','AU','AU','AU','AU',
-         'NZ','NZ','SG','SG','US','GB','GB') AS CTRY
+UNION ALL
+SELECT 'GL lines across three ERPs',
+       TO_VARCHAR(SUM(N), '999,999,999'), '2,400,000',
+       IFF(SUM(N) = 2400000, 'OK', 'run gsi_tax_lab0_setup.ipynb')
+FROM (
+    SELECT COUNT(*) AS N FROM RAW_DATA.ERP_SAP_GL
+    UNION ALL SELECT COUNT(*) FROM RAW_DATA.ERP_ORACLE_GL
+    UNION ALL SELECT COUNT(*) FROM RAW_DATA.ERP_LEGACY_AP
 )
-SELECT
-    'SUP' || LPAD((SEQ4() + 1)::VARCHAR, 6, '0')                                  AS SUPPLIER_ID,
-    p.PRE[UNIFORM(0,19,RANDOM(1001))]::VARCHAR || ' ' ||
-    p.SUF[UNIFORM(0,14,RANDOM(1002))]::VARCHAR || ' Pty Ltd'                          AS SUPPLIER_NAME,
-    CASE WHEN UNIFORM(1,100,RANDOM(1003)) &lt;= 5 THEN NULL
-         ELSE LPAD(UNIFORM(10,99,RANDOM(1004))::VARCHAR,2,'0') || ' ' ||
-              LPAD(UNIFORM(100,999,RANDOM(1005))::VARCHAR,3,'0') || ' ' ||
-              LPAD(UNIFORM(100,999,RANDOM(1006))::VARCHAR,3,'0') || ' ' ||
-              LPAD(UNIFORM(100,999,RANDOM(1007))::VARCHAR,3,'0')
-    END                                                                            AS SUPPLIER_ABN,
-    IFF(UNIFORM(1,100,RANDOM(1008)) &lt;=  8, FALSE, TRUE)                                AS GST_REGISTERED,
-    p.CTRY[UNIFORM(0,19,RANDOM(1009))]::VARCHAR                                        AS SUPPLIER_COUNTRY
-FROM TABLE(GENERATOR(ROWCOUNT =&gt; 2000)), p;
 
--- ---------------------------------------------------------------------
--- ERP_SAP_GL — 1,200,000 rows. Signed amounts, YYYYMMDD text dates.
--- NOTE: 1,200,000 &gt; 1,048,576 (the Excel row limit) — deliberate.
--- ---------------------------------------------------------------------
-CREATE OR REPLACE TABLE RAW_DATA.ERP_SAP_GL AS
-WITH p AS (
-  SELECT ARRAY_CONSTRUCT('1010','1020','1030','1040','1050','1060','1070','1090','1100','1110','1130','1140') AS BK,
-         ARRAY_CONSTRUCT('Freight and cartage','External consulting fee','Client hospitality',
-           'Raw material purchase','Bank facility fee','Premises lease','Staff training course',
-           'Software subscription','Equipment purchase','Audit and assurance fee',
-           'Canteen provisions','Medical screening') AS TXT
-),
-b AS (
-  SELECT
-    'SAP' || LPAD((SEQ4() + 1)::VARCHAR, 7, '0')                                AS BELNR,
-    UNIFORM(1, 8, RANDOM(1010))                                                     AS BUZEI,
-    p.BK[UNIFORM(0,11,RANDOM(1011))]::VARCHAR                                       AS BUKRS,
-    '4' || LPAD(UNIFORM(1, 62, RANDOM(1012))::VARCHAR, 5, '0')                      AS HKONT,
-    DATEADD('day', (DATEDIFF('day','2023-06-01'::DATE, '2026-07-31'::DATE)
-            * UNIFORM(0::FLOAT, 1::FLOAT, RANDOM(1013)))::INT, '2023-06-01'::DATE)  AS D,
-    UNIFORM(50, 250000, RANDOM(1014))                                               AS AMT,
-    'SUP' || LPAD(UNIFORM(1, 2000, RANDOM(1015))::VARCHAR, 6, '0')                  AS LIFNR,
-    CASE WHEN UNIFORM(1,100,RANDOM(1016)) &lt;= 65 THEN 'AP_INVOICE'
-         WHEN UNIFORM(1,100,RANDOM(1017)) &lt;= 88 THEN 'AR_INVOICE'
-         ELSE 'CREDIT_NOTE' END                                                 AS DOC_TYPE,
-    p.TXT[UNIFORM(0,11,RANDOM(1018))]::VARCHAR                                      AS SGTXT,
-    UNIFORM(1,1000,RANDOM(1019))                                                    AS R_DISTORT,
-    UNIFORM(1,100,RANDOM(1020))                                                     AS R_UNREG_TAX,
-    UNIFORM(1,100,RANDOM(1021))                                                     AS R_IT_WRONG
-  FROM TABLE(GENERATOR(ROWCOUNT =&gt; 1200000)), p
-),
-j AS (
-  SELECT b.*, m.SUPPLY_CATEGORY, s.GST_REGISTERED,
-         -- booked tax code and rate follow the account's supply category
-         CASE
-           WHEN s.GST_REGISTERED = FALSE THEN IFF(b.R_UNREG_TAX &lt;= 15, 'S1', 'S0')
-           WHEN m.SUPPLY_CATEGORY IN ('RESIDENTIAL_RENT','FINANCIAL_SUPPLY')
-                THEN IFF(b.R_IT_WRONG &lt;= 10, 'S1', 'IT')
-           WHEN m.SUPPLY_CATEGORY = 'EXPORT_SALES'                     THEN 'EX'
-           WHEN m.SUPPLY_CATEGORY IN ('FOOD_BASIC','MEDICAL','EDUCATION') THEN 'ZF'
-           ELSE 'S1'
-         END                                                                    AS MWSKZ
-  FROM b
-  LEFT JOIN RAW_DATA.DIM_ACCOUNT_MAPPING m
-         ON m.SOURCE_SYSTEM = 'SAP' AND m.NATIVE_ACCOUNT_CODE = b.HKONT
-  LEFT JOIN RAW_DATA.DIM_SUPPLIER s ON s.SUPPLIER_ID = b.LIFNR
-)
-SELECT
-    BELNR, BUZEI, BUKRS, HKONT,
-    TO_VARCHAR(D, 'YYYYMMDD')                                                   AS BUDAT,
-    ROUND(AMT * IFF(DOC_TYPE = 'AP_INVOICE', 1, -1), 2)                         AS DMBTR,
-    ROUND(
-      IFF(MWSKZ = 'S1', AMT * 0.10, 0)
-      * IFF(DOC_TYPE = 'AP_INVOICE', 1, -1)
-      * IFF(R_DISTORT &lt;=  5, UNIFORM(40, 160, RANDOM(1022)) / 100.0, 1.0)
-    , 2)                                                                        AS MWSTS,
-    'AUD'                                                                       AS WAERS,
-    MWSKZ, LIFNR, DOC_TYPE, SGTXT
-FROM j;
+UNION ALL
+SELECT 'Tax rules the team owns',
+       (SELECT COUNT(*)::VARCHAR FROM TAX.TAX_RULE_DETERMINATION), '16',
+       IFF((SELECT COUNT(*) FROM TAX.TAX_RULE_DETERMINATION) = 16, 'OK', 'run gsi_tax_lab0_setup.ipynb')
 
--- ---------------------------------------------------------------------
--- ERP_ORACLE_GL — 800,000 rows. Native DATE, separate DR/CR columns.
--- ---------------------------------------------------------------------
-CREATE OR REPLACE TABLE RAW_DATA.ERP_ORACLE_GL AS
-WITH p AS (
-  SELECT ARRAY_CONSTRUCT('LED_2001','LED_2002','LED_2003','LED_2004','LED_2005','LED_2007',
-           'LED_2008','LED_2009','LED_2010','LED_2011','LED_2012','LED_2013') AS LG,
-         ARRAY_CONSTRUCT('Professional services rendered','Goods received','Entertainment expense',
-           'Property rental','Interest and bank charges','Export freight','Training and development',
-           'Capital asset acquisition','Consumables','Health services') AS TXT
-),
-b AS (
-  SELECT
-    SEQ4() + 1                                                                  AS JE_HEADER_ID,
-    UNIFORM(1, 8, RANDOM(1023))                                                     AS JE_LINE_NUM,
-    p.LG[UNIFORM(0,11,RANDOM(1024))]::VARCHAR                                       AS LEDGER_ID,
-    '5100-' || LPAD(UNIFORM(1, 62, RANDOM(1025))::VARCHAR, 4, '0')                  AS CODE_COMBINATION,
-    DATEADD('day', (DATEDIFF('day','2023-06-01'::DATE, '2026-07-31'::DATE)
-            * UNIFORM(0::FLOAT, 1::FLOAT, RANDOM(1026)))::INT, '2023-06-01'::DATE)  AS GL_DATE,
-    UNIFORM(50, 250000, RANDOM(1027))                                               AS AMT,
-    'SUP' || LPAD(UNIFORM(1, 2000, RANDOM(1028))::VARCHAR, 6, '0')                  AS VENDOR_ID,
-    CASE WHEN UNIFORM(1,100,RANDOM(1029)) &lt;= 65 THEN 'AP_INVOICE'
-         WHEN UNIFORM(1,100,RANDOM(1030)) &lt;= 88 THEN 'AR_INVOICE'
-         ELSE 'CREDIT_NOTE' END                                                 AS DOC_TYPE,
-    p.TXT[UNIFORM(0,9,RANDOM(1031))]::VARCHAR                                       AS DESCRIPTION,
-    UNIFORM(1,1000,RANDOM(1032))                                                    AS R_DISTORT,
-    UNIFORM(1,100,RANDOM(1033))                                                     AS R_UNREG_TAX,
-    UNIFORM(1,100,RANDOM(1034))                                                     AS R_IT_WRONG
-  FROM TABLE(GENERATOR(ROWCOUNT =&gt; 800000)), p
-),
-j AS (
-  SELECT b.*, m.SUPPLY_CATEGORY, s.GST_REGISTERED,
-         CASE
-           WHEN s.GST_REGISTERED = FALSE THEN IFF(b.R_UNREG_TAX &lt;= 15, 'STANDARD', 'OUT_OF_SCOPE')
-           WHEN m.SUPPLY_CATEGORY IN ('RESIDENTIAL_RENT','FINANCIAL_SUPPLY')
-                THEN IFF(b.R_IT_WRONG &lt;= 10, 'STANDARD', 'EXEMPT')
-           WHEN m.SUPPLY_CATEGORY = 'EXPORT_SALES'                     THEN 'ZERO_RATED'
-           WHEN m.SUPPLY_CATEGORY IN ('FOOD_BASIC','MEDICAL','EDUCATION') THEN 'ZERO_RATED'
-           ELSE 'STANDARD'
-         END                                                                    AS TAX_CLASSIFICATION
-  FROM b
-  LEFT JOIN RAW_DATA.DIM_ACCOUNT_MAPPING m
-         ON m.SOURCE_SYSTEM = 'ORACLE' AND m.NATIVE_ACCOUNT_CODE = b.CODE_COMBINATION
-  LEFT JOIN RAW_DATA.DIM_SUPPLIER s ON s.SUPPLIER_ID = b.VENDOR_ID
-)
-SELECT
-    JE_HEADER_ID, JE_LINE_NUM, LEDGER_ID, CODE_COMBINATION, GL_DATE,
-    IFF(DOC_TYPE = 'AP_INVOICE', ROUND(AMT, 2), NULL)                           AS ENTERED_DR,
-    IFF(DOC_TYPE = 'AP_INVOICE', NULL, ROUND(AMT, 2))                           AS ENTERED_CR,
-    ROUND(
-      IFF(TAX_CLASSIFICATION = 'STANDARD', AMT * 0.10, 0)
-      * IFF(DOC_TYPE = 'AP_INVOICE', 1, -1)   -- sign must match ENTERED_DR/CR
-      * IFF(R_DISTORT &lt;= 5, UNIFORM(40, 160, RANDOM(1035)) / 100.0, 1.0)
-    , 2)                                                                        AS TAX_AMOUNT,
-    'AUD'                                                                       AS CURRENCY_CODE,
-    TAX_CLASSIFICATION, VENDOR_ID, DOC_TYPE, DESCRIPTION
-FROM j;
+UNION ALL
+SELECT 'Lodged BAS entity-periods',
+       (SELECT COUNT(*)::VARCHAR FROM RAW_DATA.FCT_BAS_LODGED), '532',
+       IFF((SELECT COUNT(*) FROM RAW_DATA.FCT_BAS_LODGED) = 532, 'OK', 'run gsi_tax_lab0_setup.ipynb');</code></pre></div>
 
--- ---------------------------------------------------------------------
--- ERP_LEGACY_AP — 400,000 rows. Lower case, DD/MM/YYYY text dates,
--- GST-INCLUSIVE amounts, ~2% unparseable dates.
--- ---------------------------------------------------------------------
-CREATE OR REPLACE TABLE RAW_DATA.ERP_LEGACY_AP AS
-WITH p AS (
-  SELECT ARRAY_CONSTRUCT('AU01','AU02','AU03','AU04','AU05','AU06','AU08','AU09','AU10',
-           'AU11','AU12','AU14') AS EC,
-         ARRAY_CONSTRUCT('sundry purchase','contractor invoice','staff amenities',
-           'office rent','finance charge','freight out','course fees','plant purchase',
-           'stationery','clinic fees') AS TXT
-),
-b AS (
-  SELECT
-    'LEG' || LPAD((SEQ4() + 1)::VARCHAR, 7, '0')                                AS doc_ref,
-    p.EC[UNIFORM(0,11,RANDOM(1036))]::VARCHAR                                       AS entity_cd,
-    'AP' || LPAD(UNIFORM(1, 62, RANDOM(1037))::VARCHAR, 3, '0')                     AS acct,
-    DATEADD('day', (DATEDIFF('day','2023-06-01'::DATE, '2026-07-31'::DATE)
-            * UNIFORM(0::FLOAT, 1::FLOAT, RANDOM(1038)))::INT, '2023-06-01'::DATE)  AS D,
-    UNIFORM(55, 275000, RANDOM(1039))                                               AS GROSS,
-    'SUP' || LPAD(UNIFORM(1, 2000, RANDOM(1040))::VARCHAR, 6, '0')                  AS vendor_ref,
-    IFF(UNIFORM(1,100,RANDOM(1041)) &lt;= 95, 'AP_INVOICE', 'CREDIT_NOTE')             AS doc_type,
-    p.TXT[UNIFORM(0,9,RANDOM(1042))]::VARCHAR                                       AS narrative,
-    UNIFORM(1,1000,RANDOM(1043))                                                    AS R_DISTORT,
-    UNIFORM(1,100,RANDOM(1044))                                                     AS R_UNREG_TAX,
-    UNIFORM(1,100,RANDOM(1045))                                                     AS R_IT_WRONG,
-    UNIFORM(1,1000,RANDOM(1046))                                                    AS R_BADDATE
-  FROM TABLE(GENERATOR(ROWCOUNT =&gt; 400000)), p
-),
-j AS (
-  SELECT b.*, m.SUPPLY_CATEGORY, s.GST_REGISTERED,
-         CASE
-           WHEN s.GST_REGISTERED = FALSE THEN IFF(b.R_UNREG_TAX &lt;= 15, 'Y', 'N')
-           WHEN m.SUPPLY_CATEGORY IN ('RESIDENTIAL_RENT','FINANCIAL_SUPPLY')
-                THEN IFF(b.R_IT_WRONG &lt;= 10, 'Y', 'N')
-           WHEN m.SUPPLY_CATEGORY = 'EXPORT_SALES'                     THEN 'N'
-           WHEN m.SUPPLY_CATEGORY IN ('FOOD_BASIC','MEDICAL','EDUCATION') THEN 'N'
-           WHEN m.SUPPLY_CATEGORY IS NULL                              THEN 'X'
-           ELSE 'Y'
-         END                                                                    AS tax_flag
-  FROM b
-  LEFT JOIN RAW_DATA.DIM_ACCOUNT_MAPPING m
-         ON m.SOURCE_SYSTEM = 'LEGACY' AND m.NATIVE_ACCOUNT_CODE = b.acct
-  LEFT JOIN RAW_DATA.DIM_SUPPLIER s ON s.SUPPLIER_ID = b.vendor_ref
-)
-SELECT
-    doc_ref, entity_cd, acct,
-    CASE WHEN R_BADDATE &lt;=  7 THEN '31/02/2024'
-         WHEN R_BADDATE &lt;= 14 THEN 'N/A'
-         WHEN R_BADDATE &lt;= 20 THEN ''
-         ELSE TO_VARCHAR(D, 'DD/MM/YYYY') END                                   AS txn_dt,
-    ROUND(GROSS, 2)                                                             AS amt_incl_tax,
-    ROUND(
-      IFF(tax_flag IN ('Y','X'), GROSS / 11.0, 0)
-      * IFF(R_DISTORT &lt;=  5, UNIFORM(40, 160, RANDOM(1047)) / 100.0, 1.0)
-    , 2)                                                                        AS tax_amt,
-    'AUD'                                                                       AS curr_cd,
-    tax_flag, vendor_ref, doc_type, narrative
-FROM j;
-
--- ---------------------------------------------------------------------
--- TAX_RULE_DETERMINATION — 16 rows. NULL = wildcard. Lower PRIORITY wins.
--- Rules 9 and 16 are the effective-dated pair: the group corrected its
--- imported-professional-services position with effect from 1 July 2024.
--- ---------------------------------------------------------------------
-CREATE OR REPLACE TABLE TAX.TAX_RULE_DETERMINATION (
-    RULE_ID                 NUMBER,
-    PRIORITY                NUMBER,
-    JURISDICTION            VARCHAR(2),
-    SUPPLY_CATEGORY         VARCHAR(30),
-    SUPPLIER_GST_REGISTERED BOOLEAN,
-    IS_CROSS_BORDER         BOOLEAN,
-    TAX_TREATMENT           VARCHAR(20),
-    RECOVERABLE             BOOLEAN,
-    VALID_FROM              DATE,
-    VALID_TO                DATE,
-    RULE_DESCRIPTION        VARCHAR(200)
-);
-
-INSERT INTO TAX.TAX_RULE_DETERMINATION VALUES
-( 1,10,NULL,'ENTERTAINMENT'    ,NULL ,NULL ,'NON_DEDUCTIBLE',FALSE,'2000-07-01','9999-12-31','Entertainment is taxable but the credit is denied'),
-( 2,10,NULL,'RESIDENTIAL_RENT' ,NULL ,NULL ,'INPUT_TAXED'   ,FALSE,'2000-07-01','9999-12-31','Residential rent is input taxed'),
-( 3,10,NULL,'FINANCIAL_SUPPLY' ,NULL ,NULL ,'INPUT_TAXED'   ,FALSE,'2000-07-01','9999-12-31','Financial supplies are input taxed'),
-( 4,10,NULL,'EXPORT_SALES'     ,NULL ,NULL ,'EXPORT'        ,TRUE ,'2000-07-01','9999-12-31','Exports are GST-free'),
-( 5,15,'AU','FOOD_BASIC'       ,NULL ,NULL ,'GST_FREE'      ,TRUE ,'2000-07-01','9999-12-31','Basic food is GST-free'),
-( 6,15,'AU','MEDICAL'          ,NULL ,NULL ,'GST_FREE'      ,TRUE ,'2000-07-01','9999-12-31','Most medical supplies are GST-free'),
-( 7,15,'AU','EDUCATION'        ,NULL ,NULL ,'GST_FREE'      ,TRUE ,'2000-07-01','9999-12-31','Most education is GST-free'),
-( 8,20,NULL,'STANDARD_SERVICES',FALSE,TRUE ,'REVERSE_CHARGE',TRUE ,'2000-07-01','9999-12-31','Imported service, unregistered offshore supplier - reverse charge'),
-( 9,20,NULL,'PROFESSIONAL_FEES',FALSE,TRUE ,'GST_FREE'      ,FALSE,'2000-07-01','2024-06-30','Imported professional fees - treated as out of scope (position superseded 1 Jul 2024)'),
-(16,20,NULL,'PROFESSIONAL_FEES',FALSE,TRUE ,'REVERSE_CHARGE',TRUE ,'2024-07-01','9999-12-31','Imported professional fees - reverse charge applies (corrected position, from 1 Jul 2024)'),
-(10,30,NULL,NULL               ,FALSE,FALSE,'GST_FREE'      ,FALSE,'2000-07-01','9999-12-31','Domestic unregistered supplier cannot charge GST - no credit'),
-(11,40,NULL,'STANDARD_GOODS'   ,NULL ,NULL ,'TAXABLE'       ,TRUE ,'2000-07-01','9999-12-31','Standard goods are taxable'),
-(12,40,NULL,'STANDARD_SERVICES',NULL ,NULL ,'TAXABLE'       ,TRUE ,'2000-07-01','9999-12-31','Standard services are taxable'),
-(13,40,NULL,'PROFESSIONAL_FEES',NULL ,NULL ,'TAXABLE'       ,TRUE ,'2000-07-01','9999-12-31','Professional fees are taxable'),
-(14,40,NULL,'CAPITAL_EQUIPMENT',NULL ,NULL ,'TAXABLE'       ,TRUE ,'2000-07-01','9999-12-31','Capital acquisitions are taxable, credit available'),
-(15,99,NULL,NULL               ,NULL ,NULL ,'TAXABLE'       ,TRUE ,'2000-07-01','9999-12-31','Catch-all default - review these');
-
--- ---------------------------------------------------------------------
--- TAX_RULE_RATE — 19 rows. 3 jurisdictions x 6 treatments, with the
--- one standard rate split 8% -&gt; 9% at 2024-01-01 so that every
--- (jurisdiction, treatment, date) combination is covered. The non-Australian
--- rows are unused extensibility: no worked example in either lab touches them.
--- The AU rate has not changed since 2000. The table is date-effective
--- anyway, so that if it ever does, nobody edits a query.
--- ---------------------------------------------------------------------
-CREATE OR REPLACE TABLE TAX.TAX_RULE_RATE (
-    RATE_ID       NUMBER,
-    JURISDICTION  VARCHAR(2),
-    TAX_TREATMENT VARCHAR(20),
-    RATE_PCT      NUMBER(5,2),
-    VALID_FROM    DATE,
-    VALID_TO      DATE
-);
-
-INSERT INTO TAX.TAX_RULE_RATE VALUES
-( 1,'AU','TAXABLE'       ,10.00,'2000-07-01','9999-12-31'),
-( 2,'AU','GST_FREE'      , 0.00,'2000-07-01','9999-12-31'),
-( 3,'AU','INPUT_TAXED'   , 0.00,'2000-07-01','9999-12-31'),
-( 4,'AU','EXPORT'        , 0.00,'2000-07-01','9999-12-31'),
-( 5,'AU','REVERSE_CHARGE',10.00,'2000-07-01','9999-12-31'),
-( 6,'AU','NON_DEDUCTIBLE',10.00,'2000-07-01','9999-12-31'),
-( 7,'NZ','TAXABLE'       ,15.00,'2000-07-01','9999-12-31'),
-( 8,'NZ','GST_FREE'      , 0.00,'2000-07-01','9999-12-31'),
-( 9,'NZ','INPUT_TAXED'   , 0.00,'2000-07-01','9999-12-31'),
-(10,'NZ','EXPORT'        , 0.00,'2000-07-01','9999-12-31'),
-(11,'NZ','REVERSE_CHARGE',15.00,'2000-07-01','9999-12-31'),
-(12,'NZ','NON_DEDUCTIBLE',15.00,'2000-07-01','9999-12-31'),
-(13,'SG','TAXABLE'       , 8.00,'2000-07-01','2023-12-31'),
-(19,'SG','TAXABLE'       , 9.00,'2024-01-01','9999-12-31'),
-(14,'SG','GST_FREE'      , 0.00,'2000-07-01','9999-12-31'),
-(15,'SG','INPUT_TAXED'   , 0.00,'2000-07-01','9999-12-31'),
-(16,'SG','EXPORT'        , 0.00,'2000-07-01','9999-12-31'),
-(17,'SG','REVERSE_CHARGE', 9.00,'2000-07-01','9999-12-31'),
-(18,'SG','NON_DEDUCTIBLE', 9.00,'2000-07-01','9999-12-31');
-
--- ---------------------------------------------------------------------
--- Transient helper: harmonise + determine, used only to derive the
--- lodged BAS. Dropped at the end of this script.
--- ---------------------------------------------------------------------
-CREATE OR REPLACE TRANSIENT TABLE RAW_DATA._TMP_DETERMINED AS
-WITH u AS (
-    SELECT 'SAP' AS SOURCE_SYSTEM, BUKRS AS SRC_ENTITY, HKONT AS ACCT,
-           TRY_TO_DATE(BUDAT,'YYYYMMDD') AS DOC_DATE, DMBTR AS NET_AMOUNT,
-           MWSTS AS BOOKED_TAX_AMOUNT, LIFNR AS SUPPLIER_ID, DOC_TYPE
-    FROM RAW_DATA.ERP_SAP_GL
-    UNION ALL
-    SELECT 'ORACLE', LEDGER_ID, CODE_COMBINATION, GL_DATE,
-           COALESCE(ENTERED_DR,0) - COALESCE(ENTERED_CR,0), TAX_AMOUNT, VENDOR_ID, DOC_TYPE
-    FROM RAW_DATA.ERP_ORACLE_GL
-    UNION ALL
-    SELECT 'LEGACY', entity_cd, acct, TRY_TO_DATE(txn_dt,'DD/MM/YYYY'),
-           amt_incl_tax - tax_amt, tax_amt, vendor_ref, doc_type
-    FROM RAW_DATA.ERP_LEGACY_AP
-),
-h AS (
-    SELECT u.*, e.ENTITY_ID, e.JURISDICTION, m.SUPPLY_CATEGORY,
-           s.GST_REGISTERED AS SUPPLIER_GST_REGISTERED,
-           (s.SUPPLIER_COUNTRY &lt;&gt; e.JURISDICTION) AS IS_CROSS_BORDER,
-           DATE_TRUNC('month', u.DOC_DATE) AS TAX_PERIOD
-    FROM u
-    LEFT JOIN RAW_DATA.DIM_LEGAL_ENTITY e
-           ON (u.SOURCE_SYSTEM='SAP'    AND e.SAP_BUKRS        = u.SRC_ENTITY)
-           OR (u.SOURCE_SYSTEM='ORACLE' AND e.ORACLE_LEDGER_ID = u.SRC_ENTITY)
-           OR (u.SOURCE_SYSTEM='LEGACY' AND e.LEGACY_ENTITY_CD = u.SRC_ENTITY)
-    LEFT JOIN RAW_DATA.DIM_ACCOUNT_MAPPING m
-           ON m.SOURCE_SYSTEM = u.SOURCE_SYSTEM AND m.NATIVE_ACCOUNT_CODE = u.ACCT
-    LEFT JOIN RAW_DATA.DIM_SUPPLIER s ON s.SUPPLIER_ID = u.SUPPLIER_ID
-),
-d AS (
-    SELECT h.ENTITY_ID, h.TAX_PERIOD, h.JURISDICTION, h.DOC_TYPE, h.NET_AMOUNT,
-           r.TAX_TREATMENT, r.RECOVERABLE
-    FROM h
-    JOIN TAX.TAX_RULE_DETERMINATION r
-      ON (r.JURISDICTION            IS NULL OR r.JURISDICTION            = h.JURISDICTION)
-     AND (r.SUPPLY_CATEGORY         IS NULL OR r.SUPPLY_CATEGORY         = h.SUPPLY_CATEGORY)
-     AND (r.SUPPLIER_GST_REGISTERED IS NULL OR r.SUPPLIER_GST_REGISTERED = h.SUPPLIER_GST_REGISTERED)
-     AND (r.IS_CROSS_BORDER         IS NULL OR r.IS_CROSS_BORDER         = h.IS_CROSS_BORDER)
-     AND h.DOC_DATE BETWEEN r.VALID_FROM AND r.VALID_TO
-    WHERE h.DOC_DATE IS NOT NULL AND h.ENTITY_ID IS NOT NULL
-    QUALIFY ROW_NUMBER() OVER (
-        PARTITION BY h.SOURCE_SYSTEM, h.SRC_ENTITY, h.ACCT, h.DOC_DATE,
-                     h.NET_AMOUNT, h.SUPPLIER_ID, h.DOC_TYPE
-        ORDER BY r.PRIORITY, r.RULE_ID) = 1
-)
-SELECT d.ENTITY_ID, d.TAX_PERIOD, d.DOC_TYPE, d.RECOVERABLE,
-       ROUND(d.NET_AMOUNT * rt.RATE_PCT / 100, 2) AS EXPECTED_TAX_AMOUNT,
-       d.NET_AMOUNT
-FROM d
-LEFT JOIN TAX.TAX_RULE_RATE rt
-       ON rt.JURISDICTION  = d.JURISDICTION
-      AND rt.TAX_TREATMENT = d.TAX_TREATMENT
-      AND d.TAX_PERIOD BETWEEN rt.VALID_FROM AND rt.VALID_TO;
-
--- ---------------------------------------------------------------------
--- FCT_BAS_LODGED — 10 AU entities x every complete month in the window.
--- ~8 entity-periods deliberately distorted (deterministic via HASH).
--- ---------------------------------------------------------------------
-CREATE OR REPLACE TABLE RAW_DATA.FCT_BAS_LODGED AS
-WITH spine AS (
-    -- One row per COMPLETE month in the GL window (2023-06-01 .. last month),
-    -- so the reconciliation has no orphan periods on either side.
-    SELECT TAX_PERIOD FROM (
-        SELECT DATEADD('month', SEQ4(), '2023-06-01'::DATE) AS TAX_PERIOD
-        FROM TABLE(GENERATOR(ROWCOUNT =&gt; 600))
-    ) WHERE TAX_PERIOD &lt; '2026-08-01'::DATE
-),
-au AS (SELECT ENTITY_ID FROM RAW_DATA.DIM_LEGAL_ENTITY WHERE JURISDICTION = 'AU'),
-grid AS (SELECT au.ENTITY_ID, spine.TAX_PERIOD FROM au, spine),
-agg AS (
-    SELECT g.ENTITY_ID, g.TAX_PERIOD,
-           COALESCE(ABS(SUM(CASE WHEN t.DOC_TYPE='AR_INVOICE' THEN t.NET_AMOUNT END)), 0) AS G1,
-           COALESCE(ABS(SUM(CASE WHEN t.DOC_TYPE='AP_INVOICE' THEN t.NET_AMOUNT END)), 0) AS G11,
-           COALESCE(ABS(SUM(CASE WHEN t.DOC_TYPE='AR_INVOICE' THEN t.EXPECTED_TAX_AMOUNT END)), 0) AS L1A,
-           COALESCE(ABS(SUM(CASE WHEN t.DOC_TYPE='AP_INVOICE' AND t.RECOVERABLE
-                                 THEN t.EXPECTED_TAX_AMOUNT END)), 0) AS L1B
-    FROM grid g
-    LEFT JOIN RAW_DATA._TMP_DETERMINED t
-           ON t.ENTITY_ID = g.ENTITY_ID AND t.TAX_PERIOD = g.TAX_PERIOD
-    GROUP BY g.ENTITY_ID, g.TAX_PERIOD
-),
-dist AS (
-    SELECT agg.*,
-           CASE MOD(ABS(HASH(ENTITY_ID, TAX_PERIOD)), 90)
-                WHEN 0 THEN 0.85
-                WHEN 1 THEN 1.12
-                ELSE 1.00 END AS F
-    FROM agg
-)
-SELECT
-    ROW_NUMBER() OVER (ORDER BY ENTITY_ID, TAX_PERIOD)  AS LODGEMENT_ID,
-    ENTITY_ID,
-    TAX_PERIOD,
-    ROUND(G1  * F, 2)                                   AS G1_TOTAL_SALES,
-    ROUND(G11 * F, 2)                                   AS G11_NON_CAP_PURCHASES,
-    ROUND(L1A * F, 2)                                   AS LABEL_1A_GST_ON_SALES,
-    ROUND(L1B * F, 2)                                   AS LABEL_1B_GST_CREDITS,
-    ROUND(L1A * F, 2) - ROUND(L1B * F, 2)               AS NET_GST,
-    DATEADD('day', 21, LAST_DAY(TAX_PERIOD))            AS LODGED_DATE,
-    ARRAY_CONSTRUCT('R. Whitlam','P. Nguyen','A. Kowalski','S. Fraser','M. Devi')
-        [MOD(ABS(HASH(ENTITY_ID)), 5)]::VARCHAR         AS LODGED_BY
-FROM dist;
-
-DROP TABLE IF EXISTS RAW_DATA._TMP_DETERMINED;
-
--- ---------------------------------------------------------------------
--- DOC_TAX_INVOICE — 300 rows, selected from real SAP GL lines so the
--- join back to the curated ledger always resolves.
--- ~25% carry a narrative that disagrees with the booked category.
--- ---------------------------------------------------------------------
-CREATE OR REPLACE TABLE RAW_DATA.DOC_TAX_INVOICE AS
-WITH p AS (
-  SELECT
-    ARRAY_CONSTRUCT('STANDARD_GOODS','STANDARD_SERVICES','PROFESSIONAL_FEES','ENTERTAINMENT',
-      'RESIDENTIAL_RENT','FINANCIAL_SUPPLY','EXPORT_SALES','FOOD_BASIC','MEDICAL','EDUCATION',
-      'CAPITAL_EQUIPMENT') AS CATS,
-    ARRAY_CONSTRUCT(
-      'Steel stock purchase, mill certificate attached, delivered to Altona works.',
-      'Annual software subscription billed from our United States parent entity.',
-      'Monthly external audit and assurance fees for the year ended 30 June.',
-      'Client dinner and drinks, six attendees, restaurant in the CBD.',
-      'Residential apartment lease for a relocated employee, 12 month term.',
-      'Bank facility arrangement fee on the renewed working capital line.',
-      'Sea freight ex Melbourne, export consignment, FOB terms.',
-      'Unprocessed fruit and vegetables supplied to the staff canteen.',
-      'Corporate health screening clinic for warehouse staff.',
-      'Accredited training course for the finance team, four attendees.',
-      'Forklift purchase, capitalised to plant and equipment.') AS NARR,
-    ARRAY_CONSTRUCT(
-      'Thanks for the prompt payment, much appreciated as always.',
-      'This invoice is now 45 days overdue. Please advise payment date immediately.',
-      'Please note our banking details have changed from this month.',
-      'We have credited the duplicate charge on your previous statement.',
-      'Escalating this to our credit team - third reminder sent with no response.',
-      'Happy to extend the discount if you settle within seven days.',
-      'Our ABN was updated last quarter, please refresh your vendor master.',
-      'Delivery was late and two units were damaged. Requesting partial credit.') AS CORR
-),
-base AS (
-  SELECT g.BELNR, g.LIFNR, m.SUPPLY_CATEGORY, s.SUPPLIER_ABN,
-         UNIFORM(1,100,RANDOM(1048)) AS MISCODE_R,
-         UNIFORM(1,10,RANDOM(1049))  AS SHIFT_R,
-         UNIFORM(1,100,RANDOM(1050)) AS ABN_R,
-         UNIFORM(0,7,RANDOM(1051))   AS CORR_R,
-         ROW_NUMBER() OVER (ORDER BY g.BELNR) AS RN
-  FROM RAW_DATA.ERP_SAP_GL g
-  JOIN RAW_DATA.DIM_ACCOUNT_MAPPING m
-    ON m.SOURCE_SYSTEM='SAP' AND m.NATIVE_ACCOUNT_CODE = g.HKONT
-  JOIN RAW_DATA.DIM_SUPPLIER s ON s.SUPPLIER_ID = g.LIFNR
-  WHERE g.DOC_TYPE = 'AP_INVOICE'
-  LIMIT 300
-),
-idx AS (
-  SELECT base.*,
-         ARRAY_POSITION(base.SUPPLY_CATEGORY::VARIANT, p.CATS) AS CAT_IDX, p.NARR, p.CORR
-  FROM base, p
-)
-SELECT
-    'DOC' || LPAD(RN::VARCHAR, 6, '0')                                       AS DOC_ID,
-    'SAP'                                                                    AS SOURCE_SYSTEM,
-    BELNR                                                                    AS SOURCE_DOC_REF,
-    LIFNR                                                                    AS SUPPLIER_ID,
-    SUPPLY_CATEGORY                                                          AS BOOKED_SUPPLY_CATEGORY,
-    NARR[IFF(MISCODE_R &lt;= 75, CAT_IDX, MOD(CAT_IDX + SHIFT_R, 11))]::VARCHAR AS INVOICE_NARRATIVE,
-    CASE WHEN ABN_R &lt;= 70 AND SUPPLIER_ABN IS NOT NULL
-         THEN 'Tax invoice. Supplier ABN ' || SUPPLIER_ABN ||
-              '. GST included in the total shown.'
-         ELSE 'Invoice total as shown. Please remit within 30 days.'
-    END                                                                      AS SUPPLIER_REMARKS,
-    CORR[CORR_R]::VARCHAR                                                    AS CORRESPONDENCE_TEXT
-FROM idx;
-
--- ---------------------------------------------------------------------
--- VERIFICATION — object names and row counts.
--- Expected: 1,200,000 / 800,000 / 400,000 / 14 / 180 / 2,000 / 532 /
---           300 / 16 / 19
--- ---------------------------------------------------------------------
-SELECT 'RAW_DATA.ERP_SAP_GL'          AS OBJECT_NAME, COUNT(*) AS ROW_COUNT FROM RAW_DATA.ERP_SAP_GL
-UNION ALL SELECT 'RAW_DATA.ERP_ORACLE_GL',      COUNT(*) FROM RAW_DATA.ERP_ORACLE_GL
-UNION ALL SELECT 'RAW_DATA.ERP_LEGACY_AP',      COUNT(*) FROM RAW_DATA.ERP_LEGACY_AP
-UNION ALL SELECT 'RAW_DATA.DIM_LEGAL_ENTITY',   COUNT(*) FROM RAW_DATA.DIM_LEGAL_ENTITY
-UNION ALL SELECT 'RAW_DATA.DIM_ACCOUNT_MAPPING',COUNT(*) FROM RAW_DATA.DIM_ACCOUNT_MAPPING
-UNION ALL SELECT 'RAW_DATA.DIM_SUPPLIER',       COUNT(*) FROM RAW_DATA.DIM_SUPPLIER
-UNION ALL SELECT 'RAW_DATA.FCT_BAS_LODGED',     COUNT(*) FROM RAW_DATA.FCT_BAS_LODGED
-UNION ALL SELECT 'RAW_DATA.DOC_TAX_INVOICE',    COUNT(*) FROM RAW_DATA.DOC_TAX_INVOICE
-UNION ALL SELECT 'TAX.TAX_RULE_DETERMINATION',  COUNT(*) FROM TAX.TAX_RULE_DETERMINATION
-UNION ALL SELECT 'TAX.TAX_RULE_RATE',           COUNT(*) FROM TAX.TAX_RULE_RATE
-ORDER BY OBJECT_NAME;</code></pre></div>
-
-<div class="info-box success"><span class="icon">&#9889;</span><div><strong>What just happened</strong><p>You provisioned compute, created a database and generated 2,400,000 ledger lines in about a
-minute. No server was sized, no storage was allocated, no index was built and there is nothing
-to maintain. The warehouse suspends itself after 60 seconds of inactivity and stops costing
-anything until the next query wakes it.</p></div></div>
-
-<p>Check the verification output against these expected counts before continuing.</p>
-
-<table class="data-table">
-<thead><tr><th>Object</th><th>Expected rows</th></tr></thead>
-<tbody>
-<tr><td><code>RAW_DATA.ERP_SAP_GL</code></td><td>1,200,000</td></tr>
-<tr><td><code>RAW_DATA.ERP_ORACLE_GL</code></td><td>800,000</td></tr>
-<tr><td><code>RAW_DATA.ERP_LEGACY_AP</code></td><td>400,000</td></tr>
-<tr><td><code>RAW_DATA.DIM_LEGAL_ENTITY</code></td><td>14</td></tr>
-<tr><td><code>RAW_DATA.DIM_ACCOUNT_MAPPING</code></td><td>180</td></tr>
-<tr><td><code>RAW_DATA.DIM_SUPPLIER</code></td><td>2,000</td></tr>
-<tr><td><code>RAW_DATA.FCT_BAS_LODGED</code></td><td>532</td></tr>
-<tr><td><code>RAW_DATA.DOC_TAX_INVOICE</code></td><td>300</td></tr>
-<tr><td><code>TAX.TAX_RULE_DETERMINATION</code></td><td>16</td></tr>
-<tr><td><code>TAX.TAX_RULE_RATE</code></td><td>19</td></tr>
-</tbody>
-</table>
+<div class="beat" data-beat="prove">
+<p><strong>Four rows, every status OK.</strong> 2,400,000 ledger lines are already queryable, and the
+count came back in about a second because Snowflake answers it from table metadata rather than reading
+the rows.</p>
+</div>
 
 <h3>Look at the three shapes side by side</h3>
 
-<p>One query, nine rows, three source systems. Everything is cast to <code>VARCHAR</code> so that
-nothing is silently coerced on the way to your screen &mdash; you see exactly what landed.</p>
+<p>Nine rows, three source systems, everything cast to <code>VARCHAR</code> so nothing is silently
+coerced on the way to your screen. You see exactly what landed.</p>
 
-<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- Three source systems, nine rows, everything cast to VARCHAR so nothing
--- is silently coerced. Read down the DATE_AS_LANDED and AMOUNT columns.
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- Three source systems, nine rows, everything cast to VARCHAR so nothing is
+-- silently coerced. Read down DATE_AS_LANDED, then across the two amount columns.
+-- Each subquery is ordered so the sample is the same rows every time you run it.
 SELECT * FROM (
     SELECT 'SAP'    AS SOURCE_SYSTEM,
            BELNR::VARCHAR              AS DOC_REF,
@@ -608,7 +62,7 @@ SELECT * FROM (
            NULL::VARCHAR               AS AMOUNT_2,
            MWSTS::VARCHAR              AS TAX_AS_BOOKED,
            MWSKZ::VARCHAR              AS TAX_CODE
-    FROM RAW_DATA.ERP_SAP_GL LIMIT 3)
+    FROM RAW_DATA.ERP_SAP_GL ORDER BY BELNR LIMIT 3)
 UNION ALL
 SELECT * FROM (
     SELECT 'ORACLE',
@@ -619,7 +73,7 @@ SELECT * FROM (
            ENTERED_CR::VARCHAR,
            TAX_AMOUNT::VARCHAR,
            TAX_CLASSIFICATION::VARCHAR
-    FROM RAW_DATA.ERP_ORACLE_GL LIMIT 3)
+    FROM RAW_DATA.ERP_ORACLE_GL ORDER BY JE_HEADER_ID LIMIT 3)
 UNION ALL
 SELECT * FROM (
     SELECT 'LEGACY',
@@ -630,13 +84,19 @@ SELECT * FROM (
            NULL::VARCHAR,
            tax_amt::VARCHAR,
            tax_flag::VARCHAR
-    FROM RAW_DATA.ERP_LEGACY_AP LIMIT 3)
+    FROM RAW_DATA.ERP_LEGACY_AP ORDER BY doc_ref LIMIT 3)
 ORDER BY SOURCE_SYSTEM, DOC_REF;</code></pre></div>
 
-<p>Read down two columns. <code>DATE_AS_LANDED</code> returns <code>20250513</code>,
-<code>2023-11-02</code> and <code>17/02/2026</code>. The amount columns are worse: SAP posts a
-single signed figure, Oracle splits debits and credits into two columns and leaves the other
-null, and the legacy system posts one unsigned figure that already includes the GST.</p>
+<div class="beat" data-beat="prove">
+<p><strong>Three systems, three incompatible conventions, one business.</strong>
+<code>DATE_AS_LANDED</code> reads <code>20250528</code> in SAP, <code>2024-05-01</code> in Oracle and
+<code>02/02/2024</code> in the legacy system. Look at the two amount columns: SAP posts one signed
+figure (row 2 is negative), Oracle fills either <code>AMOUNT_1</code> or <code>AMOUNT_2</code> and
+leaves the other empty, and the legacy system posts one unsigned figure that already includes the
+GST.</p>
+<p><em>Snowflake: all three raw shapes queried where they landed. No extract, no staging server, no
+pre-processing step to maintain.</em></p>
+</div>
 
 <h3>The same business concept, three names</h3>
 
@@ -652,16 +112,22 @@ null, and the legacy system posts one unsigned figure that already includes the 
 <tr><td>Tax code</td><td><code>MWSKZ</code> &mdash; <code>S1</code>, <code>S0</code>, <code>IT</code>, <code>EX</code>, <code>ZF</code></td><td><code>TAX_CLASSIFICATION</code> &mdash; <code>STANDARD</code>, <code>EXEMPT</code>, <code>ZERO_RATED</code>, <code>OUT_OF_SCOPE</code></td><td><code>tax_flag</code> &mdash; <code>Y</code>, <code>N</code>, <code>X</code></td></tr>
 <tr><td>Supplier</td><td><code>LIFNR</code></td><td><code>VENDOR_ID</code></td><td><code>vendor_ref</code></td></tr>
 <tr><td>Narrative</td><td><code>SGTXT</code></td><td><code>DESCRIPTION</code></td><td><code>narrative</code></td></tr>
-<tr><td>Currency</td><td><code>WAERS</code></td><td><code>CURRENCY_CODE</code></td><td><code>curr_cd</code></td></tr>
 </tbody>
 </table>
 
-<div class="info-box"><span class="icon">&#128161;</span><div><strong>Nothing here has been cleaned</strong><p>That is deliberate. This is what the data actually looks like when it lands from three systems
-that were bought, built and acquired at different times by different people. Every workshop that
-starts from a tidy single table teaches you nothing about the job.</p></div></div>
+<p>Nothing here has been cleaned, and nothing will be until Step 3. The raw layer holds data exactly as
+it landed.</p>
 
-<ul class="learning-list">
-<li>Compute, a database and 2.4 million ledger lines from a single script</li>
-<li>Three date formats, three amount conventions and three tax code vocabularies for one group</li>
-<li>The raw layer holds data exactly as landed &mdash; no conformance, no interpretation</li>
-</ul>
+<div data-surface="guide">
+<h3>Why the raw layer stays untidy</h3>
+<p>The instinct carried over from spreadsheet work is to fix data at the point you find it. Every
+workshop that starts from a single tidy table skips the part of the job that actually consumes the tax
+year, and it also teaches a habit that fails an audit: once the landed data has been edited in place,
+there is no way to separate what the source system sent from what your logic did to it.</p>
+<p>The three tax code vocabularies are worth dwelling on separately. SAP's <code>S0</code> and
+<code>ZF</code>, Oracle's <code>ZERO_RATED</code> and <code>OUT_OF_SCOPE</code>, and the legacy
+system's bare <code>Y</code>/<code>N</code>/<code>X</code> are not translations of one another. The
+legacy flag in particular carries strictly less information than the other two, which is why the
+conformed ledger in Step 3 derives treatment from the account mapping rather than trusting the source
+tax code.</p>
+</div>
