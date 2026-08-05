@@ -842,6 +842,200 @@ table tbody tr:nth-child(even) { background: var(--gray-50); }
     a { color: #000000; text-decoration: underline; }
     .hol-footer { background: #ffffff; color: #000000; border-top: 1px solid #999; }
 }
+
+/* ==========================================================================
+   LAB CARDS — the two labs get a dedicated card, not the generic
+   resource-card. resources-grid uses auto-fill/minmax(260px), which packs the
+   two lab cards into narrow tracks; labs-grid pins them to two equal columns.
+   ========================================================================== */
+.labs-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-xl);
+    margin-bottom: var(--space-xl);
+}
+
+.lab-card {
+    background: #ffffff;
+    border: 2px solid var(--gray-200);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-sm);
+    padding: var(--space-xl);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+    position: relative;
+    overflow: hidden;
+    transition: transform var(--transition-fast), box-shadow var(--transition-fast), border-color var(--transition-fast);
+}
+.lab-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 4px;
+    background: linear-gradient(90deg, var(--sf-mid-blue), var(--sf-blue));
+}
+.lab-card:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--shadow-md);
+    border-color: var(--sf-blue);
+}
+.lab-card[data-status="in-progress"] { border-color: var(--sf-blue); }
+.lab-card[data-status="in-progress"] .lab-number-badge { background: var(--sf-blue); }
+.lab-card[data-status="in-progress"] .lab-status-badge { background: #d0edf9; color: #0e6fa3; }
+.lab-card[data-status="completed"] { border-color: var(--sf-green); }
+.lab-card[data-status="completed"]::before {
+    background: linear-gradient(90deg, var(--sf-green), #6ac47a);
+}
+.lab-card[data-status="completed"] .lab-number-badge { background: var(--sf-green); }
+.lab-card[data-status="completed"] .lab-status-badge { background: #d4f0e2; color: #1f7246; }
+.lab-card[data-status="completed"] .btn-lab {
+    background: linear-gradient(135deg, #1f7a33 0%, var(--sf-green) 100%);
+}
+
+.lab-card-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-sm);
+}
+.lab-number-badge {
+    width: 40px; height: 40px;
+    border-radius: 50%;
+    background: var(--sf-mid-blue);
+    color: #ffffff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-heading);
+    font-size: 1rem;
+    font-weight: 800;
+    flex-shrink: 0;
+}
+.lab-status-badge {
+    font-family: var(--font-heading);
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 0.25rem 0.7rem;
+    border-radius: var(--radius-full);
+    background: var(--gray-100);
+    color: var(--sf-mid-blue);
+    white-space: nowrap;
+}
+
+.lab-card-title {
+    font-family: var(--font-heading);
+    font-size: 1rem;
+    font-weight: 800;
+    color: var(--sf-mid-blue);
+    letter-spacing: 0.3px;
+}
+.lab-card-desc {
+    font-size: 0.9rem;
+    color: var(--sf-text);
+    line-height: 1.65;
+}
+
+.lab-outcomes { margin: 0; }
+.lab-outcomes li { font-size: 0.875rem; margin-bottom: var(--space-xs); }
+
+.lab-tags { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.lab-tag {
+    background: var(--gray-50);
+    border: 1px solid var(--gray-300);
+    color: var(--sf-mid-blue);
+    font-family: var(--font-heading);
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    padding: 0.2rem 0.55rem;
+    border-radius: var(--radius-sm);
+}
+
+.lab-meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-md);
+    font-size: 0.82rem;
+    color: var(--gray-500);
+}
+.lab-meta-item { display: flex; align-items: center; gap: 0.3rem; }
+
+.lab-prereq {
+    font-size: 0.8rem;
+    color: var(--sf-text);
+    background: #f0f6fc;
+    border-left: 3px solid var(--sf-blue);
+    padding: 0.45rem 0.75rem;
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+.lab-prereq strong, .lab-creates strong {
+    font-family: var(--font-heading);
+    color: var(--sf-mid-blue);
+}
+.lab-creates { font-size: 0.8rem; color: var(--gray-500); }
+
+.btn-lab {
+    display: block;
+    margin-top: auto;
+    background: linear-gradient(135deg, var(--sf-mid-blue) 0%, var(--sf-blue) 100%);
+    color: #ffffff;
+    font-family: var(--font-heading);
+    font-size: 0.85rem;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    padding: 0.75rem 1.4rem;
+    border-radius: var(--radius-full);
+    text-align: center;
+    text-decoration: none;
+    transition: opacity var(--transition-fast), transform var(--transition-fast);
+}
+.btn-lab:hover {
+    opacity: 0.9;
+    transform: translateY(-1px);
+    text-decoration: none;
+    color: #ffffff;
+}
+
+/* Dependency strip */
+.dep-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-md);
+    flex-wrap: wrap;
+}
+.dep-box {
+    background: #ffffff;
+    border: 2px solid var(--gray-300);
+    border-radius: var(--radius-md);
+    padding: 0.6rem 1.1rem;
+    font-family: var(--font-heading);
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--sf-mid-blue);
+    letter-spacing: 0.4px;
+}
+.dep-arrow {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--sf-blue);
+}
+.dep-unlock {
+    font-family: var(--font-body);
+    font-size: 0.72rem;
+    font-weight: 400;
+    color: var(--gray-500);
+}
+
+@media (max-width: 820px) {
+    .labs-grid { grid-template-columns: 1fr; }
+}
 </style>
 </head>
 <body>
@@ -862,12 +1056,13 @@ table tbody tr:nth-child(even) { background: var(--gray-50); }
     <div class="hero-container">
         <span class="hero-badge">Hands-On Workshop</span>
         <h1 class="hero-title">GST Analytics &amp; AI on Snowflake for Global Solution Integrators</h1>
-        <p class="hero-subtitle">An Australian group runs three general ledgers after a decade of
-        acquisitions, and the tax team rebuilds the group GST position in Excel every month.
+        <p class="hero-subtitle">Brindabella Group runs three general ledgers after a decade of
+        acquisitions, and their tax team rebuilds the group GST position in Excel every month.
         They cannot reconcile that position to what was actually lodged, and when the ATO asks
-        about a prior period they cannot reproduce the filing at all. Over two labs you will
-        rebuild the whole thing on Snowflake — one governed ledger, an effective-dated rule set
-        the tax team owns, and a reconciliation that survives an audit.</p>
+        about a prior period they cannot reproduce the filing at all. Your firm has been engaged
+        to fix it. Over two labs you will rebuild the whole thing on Snowflake &mdash; one governed
+        ledger, an effective-dated rule set their tax team owns, and a reconciliation that
+        survives an audit.</p>
         <div class="hero-meta">
             <div class="meta-item">
                 <span class="meta-label">Duration</span>
@@ -889,42 +1084,138 @@ table tbody tr:nth-child(even) { background: var(--gray-50); }
     </div>
 </section>
 
+<!-- ==================== THE ENGAGEMENT ==================== -->
+<section class="content-section">
+    <div class="section-container">
+        <h2 class="section-title">The engagement</h2>
+
+        <div class="overview-grid">
+
+            <div class="overview-card">
+                <h3>The client &mdash; Brindabella Group</h3>
+                <p>An Australian group of roughly $4B revenue that has grown by acquisition and never
+                consolidated what it bought. Fourteen legal entities, monthly BAS, and a six-person
+                indirect tax team.</p>
+                <ul class="learning-list">
+                    <li>Three general ledgers &mdash; SAP, Oracle and a legacy AP system &mdash; that have never agreed</li>
+                    <li>Two entities that the primary ERP has no record of at all</li>
+                    <li>The lodged position assembled by hand in spreadsheets, every month</li>
+                    <li>No way to reproduce a prior filing when the ATO asks</li>
+                </ul>
+            </div>
+
+            <div class="overview-card highlight">
+                <h3>Your role</h3>
+                <p>You are the tax transformation team your firm has put on the engagement. Brindabella
+                has asked for a GST position it can defend, not a better spreadsheet.</p>
+                <ul class="learning-list">
+                    <li>Land the three ledgers and conform them without editing what was received</li>
+                    <li>Build the determination logic as data, then <strong>hand it to their tax team</strong></li>
+                    <li>Reconcile against what was actually lodged and rank the exceptions by risk</li>
+                    <li>Leave an audit trail that reproduces any prior period on demand</li>
+                </ul>
+                <p>The rule sets you build here are reusable on the next engagement. The ledger
+                underneath them is not.</p>
+            </div>
+
+        </div>
+
+        <div class="info-box"><span class="icon">&#128161;</span><div><strong>Two parties, and the
+        difference matters</strong><p>Brindabella's tax team owns the rules once you have built them
+        &mdash; that is the point of holding tax logic as data rather than as code. In Lab 1 you will
+        receive a rate change from them by email and absorb it without a deployment. A solution their
+        tax team cannot change themselves is one they will stop using within two quarters.</p></div></div>
+    </div>
+</section>
+
 <!-- ==================== THE LABS ==================== -->
 <section class="content-section">
     <div class="section-container">
         <h2 class="section-title">The two labs</h2>
 
-        <div class="resources-grid">
+        <div class="labs-grid">
 
-            <a class="resource-card" href="gsi_tax_workshop_lab1_foundation.html">
-                <h4>Lab 1 &middot; Tax Data Foundation: Raw to Return-Ready</h4>
-                <p><strong>57 min core + 28 min optional</strong></p>
-                <p>Three incompatible ERP extracts, 2.4 million ledger lines, one governed GST
-                position — and an audit trail you can reproduce on demand.</p>
-                <ul class="learning-list">
+            <div class="lab-card" id="labCard1" data-lab="1">
+                <div class="lab-card-header">
+                    <div class="lab-number-badge">1</div>
+                    <span class="lab-status-badge" id="statusBadge1">Start here</span>
+                </div>
+                <div class="lab-card-title">Tax Data Foundation: Raw to Return-Ready</div>
+                <p class="lab-card-desc">Three incompatible ERP extracts, 2.4 million ledger lines,
+                one governed GST position &mdash; and an audit trail you can reproduce on demand.</p>
+                <ul class="learning-list lab-outcomes">
                     <li>Prove that no single source system can answer the question</li>
                     <li>Conform three ERPs into one Dynamic Table with <code>TRY_TO_DATE</code></li>
-                    <li>Build an effective-dated determination rule set the tax team owns</li>
+                    <li>Build an effective-dated rule set Brindabella's tax team owns</li>
                     <li>Reconcile the computed position to the lodged BAS</li>
-                    <li>Reproduce a prior filing with Time Travel and zero-copy clone</li>
-                    <li>Optional: a Streamlit control tower, rule-change modelling, an auditor share</li>
+                    <li>Reproduce a prior filing with Time Travel and a zero-copy clone</li>
                 </ul>
-            </a>
+                <div class="lab-tags">
+                    <span class="lab-tag">Dynamic Tables</span>
+                    <span class="lab-tag">Time Travel</span>
+                    <span class="lab-tag">Zero-Copy Cloning</span>
+                    <span class="lab-tag">Secure Sharing</span>
+                    <span class="lab-tag">Streamlit</span>
+                </div>
+                <div class="lab-meta-row">
+                    <span class="lab-meta-item">&#9201; 57 min core &middot; 28 min optional</span>
+                    <span class="lab-meta-item">&#128202; Beginner &rarr; Intermediate</span>
+                </div>
+                <div class="lab-prereq">
+                    <strong>Prerequisites:</strong> The setup notebook only &mdash; start here
+                </div>
+                <div class="lab-creates">
+                    <strong>Creates:</strong> <code>GL_HARMONISED</code> Dynamic Table, 16 determination
+                    rules and 19 rates, the determined position, the exception register, the BAS
+                    reconciliation and an audit clone
+                </div>
+                <a class="btn-lab" href="gsi_tax_workshop_lab1_foundation.html">Start Lab 1 &rarr;</a>
+            </div>
 
-            <a class="resource-card" href="gsi_tax_workshop_lab2_cortex_ai.html">
-                <h4>Lab 2 &middot; Cortex AI for Indirect Tax</h4>
-                <p><strong>60 min core + 34 min optional</strong></p>
-                <p>The evidence that decides the tax treatment is written in free text. Read it
-                with a language model, then answer the tax team's questions in plain English.</p>
-                <ul class="learning-list">
+            <div class="lab-card" id="labCard2" data-lab="2">
+                <div class="lab-card-header">
+                    <div class="lab-number-badge">2</div>
+                    <span class="lab-status-badge" id="statusBadge2">After Lab 1</span>
+                </div>
+                <div class="lab-card-title">Cortex AI for Indirect Tax</div>
+                <p class="lab-card-desc">The evidence that decides the tax treatment is written in
+                free text. Read it with a language model, then answer their tax team's questions in
+                plain English.</p>
+                <ul class="learning-list lab-outcomes">
                     <li>Classify the supply from the invoice narrative and find the miscoding</li>
                     <li>Extract the supplier ABN and stated GST from unstructured remarks</li>
                     <li>Draft working papers grounded in the rule that actually fired</li>
-                    <li>Build a semantic view and an agent the tax team can just ask</li>
-                    <li>Optional: cost control, correspondence triage, an AI review queue, a second agent tool</li>
+                    <li>Build a semantic view and an agent their tax team can just ask</li>
+                    <li>Optional: cost control, correspondence triage, an AI review queue</li>
                 </ul>
-            </a>
+                <div class="lab-tags">
+                    <span class="lab-tag">AI_CLASSIFY</span>
+                    <span class="lab-tag">EXTRACT_ANSWER</span>
+                    <span class="lab-tag">AI_COMPLETE</span>
+                    <span class="lab-tag">Semantic Views</span>
+                    <span class="lab-tag">Cortex Agents</span>
+                </div>
+                <div class="lab-meta-row">
+                    <span class="lab-meta-item">&#9201; 60 min core &middot; 34 min optional</span>
+                    <span class="lab-meta-item">&#128202; Intermediate</span>
+                </div>
+                <div class="lab-prereq">
+                    <strong>Prerequisites:</strong> Lab 1 must be complete, plus the
+                    <code>SNOWFLAKE.CORTEX_USER</code> database role
+                </div>
+                <div class="lab-creates">
+                    <strong>Creates:</strong> AI classification and extraction views, generated working
+                    papers, a semantic view and a Cortex Agent
+                </div>
+                <a class="btn-lab" href="gsi_tax_workshop_lab2_cortex_ai.html">Start Lab 2 &rarr;</a>
+            </div>
 
+        </div>
+
+        <div class="dep-row">
+            <div class="dep-box">Lab 1 &mdash; Foundation</div>
+            <div class="dep-arrow">&mdash;&mdash;&nbsp;&#9654;&nbsp;<span class="dep-unlock">unlocks</span>&nbsp;&mdash;&mdash;</div>
+            <div class="dep-box">Lab 2 &mdash; Cortex AI</div>
         </div>
     </div>
 </section>
@@ -937,7 +1228,7 @@ table tbody tr:nth-child(even) { background: var(--gray-50); }
         <p>Both labs build one thing: a layered GST platform over three general ledgers that were
         never designed to be combined. The layering is the design, not housekeeping. Each layer has
         exactly one job, and the boundary between conformance and tax logic is what makes the rule
-        set something the tax team can own and change without an engineer.</p>
+        set something Brindabella's tax team can own and change without an engineer.</p>
 
         <p>Nothing is copied between layers. Every layer above <code>RAW_DATA</code> is a Dynamic
         Table or a view over the layer beneath it, so there is one copy of the ledger and one
@@ -1034,7 +1325,7 @@ table tbody tr:nth-child(even) { background: var(--gray-50); }
                         <td><code>TAX_RULE_DETERMINATION</code> and <code>TAX_RULE_RATE</code> as
                         effective-dated tables, then <code>V_GST_DETERMINED</code>,
                         <code>V_GST_EXCEPTIONS</code> and <code>V_GST_VS_BAS</code>.</td>
-                        <td>The rules are <strong>data the tax team edits</strong>, not SQL an
+                        <td>The rules are <strong>data their tax team edits</strong>, not SQL an
                         engineer edits. Changing a rate is an <code>UPDATE</code>, not a release.</td>
                     </tr>
                     <tr>
@@ -1075,7 +1366,7 @@ table tbody tr:nth-child(even) { background: var(--gray-50); }
         <strong>532 entity-periods</strong> to reconcile against the lodged BAS, and the rule set
         flags <strong>253,394</strong> of the 2,400,000 ledger lines for review. Two of the
         14 entities do not exist in SAP at all, which is the first thing Lab 1 proves and the reason
-        the group cannot answer the partner's question today.</p>
+        Brindabella cannot answer the partner's question today.</p>
 
         <div class="info-box">
             <span class="icon">&#128273;</span>
@@ -1206,7 +1497,7 @@ table tbody tr:nth-child(even) { background: var(--gray-50); }
         <p>What you build in Lab 1 is not "the tax rules". It is <strong>one rule set, for one
         tax</strong>, sitting beside a conformed ledger that knows nothing about GST — which is
         precisely why the tax logic is kept out of the curated layer. Every other indirect tax the
-        practice touches has the same shape: rules the business owns, effective-dated, applied by
+        practice touches has the same shape: rules the tax team owns, effective-dated, applied by
         thin generic SQL.</p>
 
         <div style="display:flex; flex-direction:column; align-items:center; gap:22px; margin:28px 0 18px;">
@@ -1253,9 +1544,9 @@ table tbody tr:nth-child(even) { background: var(--gray-50); }
             </div>
         </div>
 
-        <p><strong>The ledger is bespoke to the client; the rule sets are reusable IP</strong> — the
-        payroll tax rule set you build for one client is most of the payroll tax rule set for the
-        next one.</p>
+        <p><strong>Brindabella's ledger is bespoke; the rule sets are reusable IP</strong> &mdash; the
+        payroll tax rule set you build here is most of the payroll tax rule set for your
+        next client.</p>
 
         <div class="info-box"><span class="icon">&#128273;</span><div><strong>The honest boundary</strong><p>Not everything is a rule table. Anything requiring iterative or circular computation — thin
         capitalisation, Pillar Two top-up, consolidation eliminations with circular ownership —
@@ -1286,6 +1577,39 @@ table tbody tr:nth-child(even) { background: var(--gray-50); }
 </footer>
 
 <script>
+/* ---------- Lab status badges ----------
+   The lab guides write workshop_gsi_tax_lab{N}_progress as
+   { started, completed: [stepNumbers], steps: {} }. Only the 5 core steps
+   count towards completion, matching the progress bar inside each lab. */
+(function () {
+    var CORE = 5;
+    [1, 2].forEach(function (n) {
+        var badge = document.getElementById('statusBadge' + n);
+        var card = document.getElementById('labCard' + n);
+        if (!badge || !card) { return; }
+
+        var raw = null;
+        try { raw = localStorage.getItem('workshop_gsi_tax_lab' + n + '_progress'); }
+        catch (e) { return; }              // storage blocked - leave the default text
+        if (!raw) { return; }
+
+        var done = [];
+        try {
+            var parsed = JSON.parse(raw);
+            done = (parsed && Array.isArray(parsed.completed)) ? parsed.completed : [];
+        } catch (e) { return; }             // malformed - leave the default text
+
+        var core = done.filter(function (s) { return s >= 1 && s <= CORE; }).length;
+        if (core >= CORE) {
+            badge.textContent = 'Complete';
+            card.setAttribute('data-status', 'completed');
+        } else if (core > 0 || done.length > 0) {
+            badge.textContent = core + ' of ' + CORE + ' steps';
+            card.setAttribute('data-status', 'in-progress');
+        }
+    });
+})();
+
 /* ---------- Copy to clipboard ---------- */
 function copyCode(btn) {
     const block = btn.closest('.code-block');

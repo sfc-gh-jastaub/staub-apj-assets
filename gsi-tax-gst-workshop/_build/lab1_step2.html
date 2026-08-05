@@ -1,5 +1,5 @@
 <div class="beat" data-beat="business">
-<p><strong>The question the partner actually asks.</strong> <em>What was the group's GST payable for the
+<p><strong>The question the partner actually asks.</strong> <em>What was Brindabella's GST payable for the
 last full quarter, by entity?</em> It is a completely reasonable question, and right now it is
 unanswerable. This step proves that in three queries rather than cataloguing every flaw in the
 data.</p>
@@ -7,7 +7,7 @@ data.</p>
 
 <h3>The plausible wrong answer</h3>
 
-<p>SAP is the biggest of the three systems and the one the group thinks of as <em>the</em> general
+<p>SAP is the biggest of the three systems and the one Brindabella thinks of as <em>the</em> general
 ledger. Answer the question against SAP alone.</p>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- The partner's question, answered against SAP alone.
@@ -38,7 +38,7 @@ your three source systems, on its own, will not open in the tool your team uses 
 aggregate scanned the whole table on the smallest warehouse Snowflake sells, with no index, no
 tuning and no preparation of any kind.</p></div></div>
 
-<div class="info-box warning"><span class="icon">&#9888;&#65039;</span><div><strong>And it is still the wrong answer</strong><p>The group has 14 legal entities. That result has 12 rows, because two entities do not exist in
+<div class="info-box warning"><span class="icon">&#9888;&#65039;</span><div><strong>And it is still the wrong answer</strong><p>Brindabella has 14 legal entities. That result has 12 rows, because two entities do not exist in
 SAP at all &mdash; Marrickville Food Co and Nullarbor Freight are booked in Oracle and in the
 legacy system. Nothing in the result grid says so. A number that is confidently wrong and gives
 no indication that it is wrong is the single most dangerous artefact in tax reporting.</p></div></div>

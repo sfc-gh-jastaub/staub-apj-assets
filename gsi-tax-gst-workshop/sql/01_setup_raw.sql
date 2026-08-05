@@ -33,7 +33,8 @@ CREATE SCHEMA IF NOT EXISTS AUDIT;
 
 -- ---------------------------------------------------------------------
 -- DIM_LEGAL_ENTITY — 14 rows. The crosswalk: three ERP identifiers,
--- one group entity. NULLs mean the entity does not exist in that system.
+-- one Brindabella Group entity. NULLs mean the entity does not exist in
+-- that system.
 -- ---------------------------------------------------------------------
 CREATE OR REPLACE TABLE RAW_DATA.DIM_LEGAL_ENTITY (
     ENTITY_ID            VARCHAR(10),

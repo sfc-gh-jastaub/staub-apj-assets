@@ -1,8 +1,8 @@
 <div class="beat" data-beat="business">
-<p><strong>The rules belong to the tax team, not to a developer.</strong> Tax logic is not a
+<p><strong>The rules belong to Brindabella's tax team, not to a developer.</strong> Tax logic is not a
 <code>CASE</code> statement. It is a body of rules with jurisdictions, effective dates and precedence,
-and it changes at short notice, usually decided by someone well outside IT. So hold it as data the tax
-team can read, review and change themselves.</p>
+and it changes at short notice, usually decided by someone well outside IT. So hold it as data their
+tax team can read, review and change themselves.</p>
 </div>
 
 <p>By the end of this step you will:</p>
@@ -60,7 +60,7 @@ non-overlapping validity windows:</p>
 </table>
 
 <p>That is not two rules. It is <strong>the same rule with two effective-dated versions</strong>.
-Following a review, the group corrected its position on imported professional services with effect
+Following a review, Brindabella corrected its position on imported professional services with effect
 from 1 July 2024 — before that date those acquisitions were treated as out of scope, and from that
 date the reverse charge applies. Unrecognised reverse charge on imported services is one of the most
 common findings in an Australian GST review, so this is not a hypothetical.</p>
@@ -206,10 +206,10 @@ thing standing between you and restating three years of lodged BAS by accident.<
 
 <h3>Change one row and watch the position move</h3>
 
-<p>So what happens when the tax team wants a change? Do it and see. Run all three statements in
+<p>So what happens when Brindabella's tax team wants a change? Do it and see. Run all three statements in
 order.</p>
 
-<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- 1. The tax team wants to model the reverse charge at a different rate.
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- 1. Brindabella's tax team wants to model the reverse charge at a different rate.
 --    They change one row of data. Not a query. Not a deployment.
 UPDATE TAX.TAX_RULE_RATE
    SET RATE_PCT = 15.00
@@ -236,7 +236,7 @@ UPDATE TAX.TAX_RULE_RATE
  WHERE JURISDICTION = 'AU' AND TAX_TREATMENT = 'REVERSE_CHARGE';</code></pre></div>
 
 <div class="beat" data-beat="prove">
-<p><strong>The group's computed GST position moved twice in about four seconds.</strong>
+<p><strong>Brindabella's computed GST position moved twice in about four seconds.</strong>
 <code>APPLIED_RATE_PCT</code> reads 15.00 and expected GST on those 4,690 lines rises by half to
 $39,370,891. Statement 3 puts it back and the position returns to $26,247,261.</p>
 <p><em>Snowflake: the view is generic, so a rule change takes effect on the next query. No rebuild, no
@@ -336,7 +336,7 @@ always sorted worst-first.</p>
 this register at all. Lab 2 comes back to this queue and uses Cortex to explain each flagged line in
 plain English.</p>
 
-<div class="info-box success"><span class="icon">✅</span><div><strong>What you just built</strong><p>Sixteen determination rules and nineteen rates, held as data the tax team owns and can change
+<div class="info-box success"><span class="icon">✅</span><div><strong>What you just built</strong><p>Sixteen determination rules and nineteen rates, held as data Brindabella's tax team owns and can change
 without a developer; a thin generic view that applies whichever rules were in force on the date of
 each transaction; and a standing exception register over 2,400,000 ledger lines.</p></div></div>
 
@@ -395,17 +395,17 @@ each transaction; and a standing exception register over 2,400,000 ledger lines.
 beside a ledger that knows nothing about GST — which is exactly why tax logic was kept out of the
 curated layer in Step 3.</p>
 
-<p>Every other indirect tax your practice touches has the same shape: rules the business owns,
+<p>Every other indirect tax your practice touches has the same shape: rules the tax team owns,
 effective-dated, applied by thin generic SQL. Fuel tax credits reindex twice a year. Payroll tax is
 eight jurisdictions, each with its own rate, threshold and grouping rules. Withholding tax is a
 treaty rate by country and income type. Same pattern, different table.</p>
 
-<p><strong>The ledger is bespoke to the client. The rule sets are not.</strong> The payroll tax rule
-set you build for one client is most of the payroll tax rule set for the next one.</p>
+<p><strong>Brindabella's ledger is bespoke. The rule sets are not.</strong> The payroll tax rule
+set you build here is most of the payroll tax rule set for your next client.</p>
 
 <div class="info-box success"><span class="icon">💼</span><div><strong>The commercial point</strong><p>Most of this work today is billed by the hour and thrown away when the engagement closes. Build it
-this way and the rule libraries become your firm's own intellectual property — something you deploy
-repeatedly rather than rebuild from scratch for every client.</p></div></div>
+this way and the rule libraries become your firm's own intellectual property &mdash; something you deploy
+repeatedly rather than rebuild from scratch on every engagement.</p></div></div>
 
 <div class="info-box warning"><span class="icon">⚠️</span><div><strong>The honest boundary</strong><p>Not everything is a rule table. Anything requiring iterative or circular computation needs
 procedural logic — thin capitalisation, Pillar Two top-up calculations, and consolidation

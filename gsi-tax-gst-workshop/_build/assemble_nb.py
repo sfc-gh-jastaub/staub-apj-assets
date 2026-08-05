@@ -72,7 +72,7 @@ LEDGER = {
         (3, "pull ABNs and GST wording out of unstructured remarks"),
         (4, "draft a defensible working paper for every exception"),
         (5, "answer a partner's question in plain English, with the SQL shown"),
-        (5, "hand the tax team a governed way to ask their own questions"),
+        (5, "hand Brindabella's tax team a governed way to ask their own questions"),
     ],
 }
 LEDGER_AT = {"lab1": [2, 5, 8], "lab2": [3, 5, 9]}
@@ -88,7 +88,7 @@ def ledger_md(lab, upto):
         )
         for step, text in LEDGER[lab]
     ]
-    return "> **What the tax practice can do now**\n>\n" + "\n".join(rows)
+    return "> **What you can do now**\n>\n" + "\n".join(rows)
 
 
 def step_orientation(lab, step, cfg):

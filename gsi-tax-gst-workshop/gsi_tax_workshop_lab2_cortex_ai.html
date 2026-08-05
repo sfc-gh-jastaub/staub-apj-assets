@@ -897,7 +897,7 @@ table tbody tr:nth-child(even) { background: var(--gray-50); }
                 <h3>What you will build</h3>
                 <ul class="learning-list">
                     <li>Classify the supply type from an invoice narrative with <code>AI_CLASSIFY</code> and compare it to what was booked.</li>
-                    <li>Detect miscoding at scale and feed the findings into the same exception register the tax team already uses.</li>
+                    <li>Detect miscoding at scale and feed the findings into the same exception register Brindabella's tax team already uses.</li>
                     <li>Pull the supplier ABN and stated GST amount out of free text with <code>EXTRACT_ANSWER</code> and reconcile them to the ledger.</li>
                     <li>Draft a plain-English working paper for every flagged exception with <code>AI_COMPLETE</code>, grounded in the rule that actually fired.</li>
                     <li>Publish a semantic view and a Cortex Agent so a tax partner can ask questions without writing SQL.</li>
@@ -915,7 +915,7 @@ table tbody tr:nth-child(even) { background: var(--gray-50); }
                     <span class="tech-tag">Streamlit in Snowflake</span>
                 </div>
                 <h3 style="margin-top:var(--space-xl);">Use case</h3>
-                <p>The exception register from Lab 1 tells the tax team which lines to look at. It cannot tell them what the invoice actually said, whether the coding was right, or why the line was flagged. This lab closes that gap.</p>
+                <p>The exception register from Lab 1 tells Brindabella's tax team which lines to look at. It cannot tell them what the invoice actually said, whether the coding was right, or why the line was flagged. This lab closes that gap.</p>
             </div>
         </div>
     </div>
@@ -1005,10 +1005,15 @@ table tbody tr:nth-child(even) { background: var(--gray-50); }
         <span class="step-duration">~3 min</span>
     </div>
     <div class="step-content">
-<p>Lab 2 adds one thing to what you already built: the ability to read. Everything else — the
-conformed ledger, the determination rules, the reconciliation, the exception register — is already
+<p>Lab 2 adds one thing to what you already built: the ability to read. Everything else &mdash; the
+conformed ledger, the determination rules, the reconciliation, the exception register &mdash; is already
 on disk from Lab 1, and this lab does not rebuild any of it. Before you spend a single language
 model call, confirm the foundation is intact.</p>
+
+<p><strong>Where the engagement stands.</strong> Your firm has given Brindabella Group a governed GST
+position and an exception register. Their tax team can now see which lines are wrong, but not
+<em>why</em> &mdash; the evidence for that sits in invoice narrative and supplier remarks no rule can
+read. That is what this lab closes.</p>
 
 <div class="info-box warning"><span class="icon">⚠️</span><div><strong>Prerequisites</strong><p><strong>Lab 1 must be complete.</strong> Every object this lab reads from was created there, and
 nothing in Lab 2 will run without it. You also need the <code>SNOWFLAKE.CORTEX_USER</code> database
@@ -1096,7 +1101,7 @@ them rather than replacing them.</p></div></div>
     <div class="step-content">
 <p>Supply category drives tax treatment. In Lab 1 it arrived through a join to
 <code>DIM_ACCOUNT_MAPPING</code>, which means it is really a property of the general ledger account
-somebody chose at data entry — a judgement made in seconds, by a person who is not in the tax team,
+somebody chose at data entry — a judgement made in seconds, by a person who is not in Brindabella's tax team,
 against a chart of accounts they did not design. That is where miscoding is born, and no amount of
 rule logic downstream can detect it, because the rules faithfully apply the correct treatment to the
 wrong category.</p>
@@ -1105,7 +1110,7 @@ wrong category.</p>
     <li>Read the invoice narrative that has been sitting unused since setup.</li>
     <li>Have a language model classify the supply from that narrative in one function call.</li>
     <li>Compare what the AI read against what the ledger booked, and find the disagreements.</li>
-    <li>Push the findings into the exception register the tax team already works from.</li>
+    <li>Push the findings into the exception register Brindabella's tax team already works from.</li>
 </ul>
 
 <h3>Narrative, booking and verdict side by side</h3>
@@ -1215,7 +1220,7 @@ document, and you do not want it disappearing from the count.</p>
 
 <h3>The miscoding pattern</h3>
 
-<p>Individual disagreements are interesting. The pattern across them is what a tax practice acts
+<p>Individual disagreements are interesting. The pattern across them is what you act
 on, because it points at a process rather than a transaction.</p>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>SELECT
@@ -1249,7 +1254,7 @@ because nothing could query it.</p></div></div>
 <h3>Close the loop into the existing work queue</h3>
 
 <p>A finding that lives in its own table is a finding nobody actions. The join below lands the AI
-results in <code>TAX.V_GST_EXCEPTIONS</code> — the same register the tax team has been working from
+results in <code>TAX.V_GST_EXCEPTIONS</code> &mdash; the same register their tax team has been working from
 since Lab 1 — on <code>(SOURCE_SYSTEM, SOURCE_DOC_REF)</code>.</p>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>SELECT
@@ -1656,8 +1661,8 @@ reviewer's job has changed from writing to checking.</p>
 generated text, which means no paragraph in this output is unattributable. A partner who does not
 believe a sentence can look up rule 16 in <code>TAX.TAX_RULE_DETERMINATION</code>, read the row a
 human wrote, and see the validity dates that made it apply to this transaction. The narrative is
-generated; the reasoning it describes is not. That is the only arrangement in which a tax practice
-can put generated text in front of a client.</p></div></div>
+generated; the reasoning it describes is not. That is the only arrangement in which you
+can put generated text in front of Brindabella.</p></div></div>
 
 <div class="info-box warning"><span class="icon">💰</span><div><strong>This is the most expensive operation in the workshop</strong><p>Generation costs materially more per row than classification or extraction, and it is the one place
 where an unbounded query becomes an unwelcome invoice. Three controls make it safe:
@@ -1676,7 +1681,7 @@ which is the same materialisation lesson from Lab 1 applied to AI.</p></div></di
         <span class="step-duration">~16 min</span>
     </div>
     <div class="step-content">
-<p>Everything so far has required somebody who can write SQL. The tax team cannot, and that is the
+<p>Everything so far has required somebody who can write SQL. Brindabella's tax team cannot, and that is the
 actual constraint on how much of this work gets done — not compute, not data quality, not model
 availability. This step removes the SQL requirement and lets a tax specialist ask the question in the
 words they already use.</p>
@@ -1789,11 +1794,11 @@ the data before suggesting anything, and in a room it is considerably more convi
 <div class="info-box"><span class="icon">🔑</span><div><strong>The synonyms are the product</strong><p>A tax specialist does not type <code>LABEL_1B_GST_CREDITS</code>. They type <em>"input tax
 credits"</em>, or <em>"ITCs"</em>, or <em>"GST on purchases"</em>, and if the semantic view has never
 heard of any of those phrases the agent will guess or refuse. Every dimension and every metric should
-carry the words the tax team says out loud: <em>"BAS"</em> and <em>"activity statement"</em> for the
+carry the words Brindabella's tax team says out loud: <em>"BAS"</em> and <em>"activity statement"</em> for the
 lodgement measures, <em>"entity"</em> and <em>"company"</em> for <code>ENTITY_NAME</code>,
 <em>"reverse charge"</em> for the treatment, <em>"month"</em> and <em>"period"</em> for
 <code>TAX_PERIOD</code>. This is the least technical work in the entire workshop and it determines
-whether anybody uses what you built. Sit with the tax team and write them down.</p></div></div>
+whether anybody uses what you built. Sit with their tax team and write them down.</p></div></div>
 
 <h3>If the UI route is unavailable</h3>
 
@@ -1941,7 +1946,7 @@ That is the point worth leaving with.</p></div></div>
 read, and when the thing being recomputed is a model call, every read has a price and a wait
 attached to it.</p>
 
-<p>This step writes the model output down once and lets the tax team read it as many times as
+<p>This step writes the model output down once and lets Brindabella's tax team read it as many times as
 they like.</p>
 
 <ul class="learning-list">
@@ -2090,7 +2095,7 @@ from the result cache and consumes no compute at all.</p>
 
 <table class="data-table">
     <thead>
-        <tr><th>Reading the same 25 working papers</th><th>Model calls per read</th><th>What the tax team experiences</th></tr>
+        <tr><th>Reading the same 25 working papers</th><th>Model calls per read</th><th>What their tax team experiences</th></tr>
     </thead>
     <tbody>
         <tr><td>From the view built in Step 4</td><td>25, every single time</td><td>A wait of seconds, and a bill, on each refresh of the screen. Ten reviewers reading it once each is 250 calls.</td></tr>
@@ -2128,12 +2133,12 @@ in an inbox.</p>
 
 <p><code>CORRESPONDENCE_TEXT</code> on <code>RAW_DATA.DOC_TAX_INVOICE</code> holds the message
 attached to each document. This step reads the tone of it, so the queue can be worked in the
-order the tax team should actually work it.</p>
+order Brindabella's tax team should actually work it.</p>
 
 <ul class="learning-list">
     <li>Return a sentiment label from free text with one function call.</li>
     <li>Handle all four labels the function can return.</li>
-    <li>Turn the label into a triage priority the tax team can sort on.</li>
+    <li>Turn the label into a triage priority their tax team can sort on.</li>
 </ul>
 
 <div class="info-box warning"><span class="icon">⚠️</span><div><strong><code>AI_SENTIMENT</code> returns <code>mixed</code> as well as positive, negative and neutral</strong><p>A <code>CASE</code> that
@@ -2247,7 +2252,7 @@ and you see it as a count rather than as a silently mis-prioritised message mont
 <div class="info-box"><span class="icon">🔑</span><div><strong>Sentiment is a routing signal, not a tax position</strong><p>Nothing in this step changes a treatment, a rate or a return. An angry supplier is not
 evidence that the GST is wrong, and a grateful one is not evidence that it is right — the
 determination rules from Lab 1 remain the only thing that decides the tax outcome. What this
-gives the tax practice is order of work: 25 messages sorted so the disputed and the partly
+gives their tax team is order of work: 25 messages sorted so the disputed and the partly
 disputed reach a human first, and the acknowledgements wait. <code>NEEDS_RESPONSE</code> is
 the column the queue actually filters on.</p></div></div>
 
@@ -2265,7 +2270,7 @@ rather than a separate pile.</p></div></div>
         <span class="step-duration">~10 min</span>
     </div>
     <div class="step-content">
-<p>The control tower you built in Lab 1 shows the tax team what is wrong. It does not help them
+<p>The control tower you built in Lab 1 shows Brindabella's tax team what is wrong. It does not help them
 work through it, because the one thing a reviewer needs in front of them — why this line was
 flagged, in words, and which rule decided it — was not available until Step 4 of this lab.</p>
 
@@ -2393,7 +2398,7 @@ def money(value):
 # ----------------------------------------------------------------------------
 # Header tiles
 # ----------------------------------------------------------------------------
-st.title("GST Control Tower")
+st.title("Brindabella Group · GST Control Tower")
 st.caption("One governed ledger, the group GST position, and the review queue.")
 
 totals = load_group_totals().iloc[0]
@@ -2550,7 +2555,7 @@ click cost no compute at all.</p></div></div>
 
 <div class="info-box success"><span class="icon">✅</span><div><strong>One application, four tabs</strong><p>The group position, the reconciliation
 against what was lodged, the exception register ranked by risk, and a review queue where the
-explanation is already written. The tax team never sees the SQL, and every number on the screen
+explanation is already written. Their tax team never sees the SQL, and every number on the screen
 traces back to a rule row and a source document reference.</p></div></div>
     <label class="completion-checkbox"><input type="checkbox" onchange="markStepComplete(8)"> Mark step 8 complete</label>
     </div>
@@ -2706,7 +2711,7 @@ fix the split rather than the wording.</p></div></div>
 rule tables and the same conformed ledger. That is what stops the second tool becoming a second
 version of the truth: a supplier's credits reconcile to the entity's return because they are the
 same lines, aggregated differently. Adding tools widens what the agent can be asked. It must
-never widen what the group considers to be the answer.</p></div></div>
+never widen what Brindabella considers to be the answer.</p></div></div>
     <label class="completion-checkbox"><input type="checkbox" onchange="markStepComplete(9)"> Mark step 9 complete</label>
     </div>
 </div>
@@ -2761,10 +2766,10 @@ An agent left pointing at a dropped semantic view will not cost anything, but it
 confusingly for the next person who finds it.</p></div></div>
 
 <div class="info-box success"><span class="icon">✅</span><div><strong>What you take with you</strong><p>Three source systems conformed into one
-ledger that holds no tax logic, an effective-dated rule set the tax team owns, a determination
+ledger that holds no tax logic, an effective-dated rule set Brindabella's tax team owns, a determination
 layer thin enough to audit, exceptions ranked by risk, and language models supplying the
-attributes the rules were missing rather than replacing the rules. Rebuild it against your
-client's ledger and the shape does not change — only the source branches and the rule rows
+attributes the rules were missing rather than replacing the rules. Rebuild it against your next
+client's ledger and the shape does not change &mdash; only the source branches and the rule rows
 do.</p></div></div>
     <label class="completion-checkbox"><input type="checkbox" onchange="markStepComplete(10)"> Mark step 10 complete</label>
     </div>

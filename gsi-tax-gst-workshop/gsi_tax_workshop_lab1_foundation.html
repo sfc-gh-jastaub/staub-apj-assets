@@ -899,7 +899,7 @@ table tbody tr:nth-child(even) { background: var(--gray-50); }
                     <li>Inspect the three deliberately incompatible ERP extracts — 2,400,000 general ledger lines — exactly as they landed.</li>
                     <li>Prove in three queries that the group GST position is currently unanswerable, and quantify exactly why.</li>
                     <li>Conform all three systems into <code>CURATED.GL_HARMONISED</code>, a Dynamic Table that maintains itself and contains no tax logic.</li>
-                    <li>Build the tax rules layer as data the tax team owns: a decision table, effective-dated rates, and thin generic SQL that applies them.</li>
+                    <li>Build the tax rules layer as data Brindabella's tax team owns: a decision table, effective-dated rates, and thin generic SQL that applies them.</li>
                     <li>Reconcile the computed GST position against the lodged BAS and find the periods that do not tie.</li>
                     <li>Reproduce the ledger exactly as it stood at lodgement using Time Travel, and take a zero-copy audit snapshot.</li>
                 </ul>
@@ -915,7 +915,7 @@ table tbody tr:nth-child(even) { background: var(--gray-50); }
                     <span class="tech-tag">Streamlit in Snowflake</span>
                 </div>
                 <h3 style="margin-top:var(--space-xl);">Use case</h3>
-                <p>An Australian group runs three general ledgers after a decade of acquisitions. The tax team rebuilds the group GST position in Excel every month, cannot reconcile it to what was lodged, and cannot reproduce a prior filing when the ATO asks. This lab fixes that end to end.</p>
+                <p>Brindabella Group runs three general ledgers after a decade of acquisitions. Their tax team rebuilds the group GST position in Excel every month, cannot reconcile it to what was lodged, and cannot reproduce a prior filing when the ATO asks. Your firm has been engaged to fix that end to end.</p>
             </div>
         </div>
     </div>
@@ -966,7 +966,7 @@ table tbody tr:nth-child(even) { background: var(--gray-50); }
             </a>
             <a class="step-nav-item" href="#step-7" data-step="7">
                 <span class="nav-index">7</span>
-                <span class="nav-text">The tax team sends you a rate change</span>
+                <span class="nav-text">Brindabella's tax team sends you a rate change</span>
                 <span class="nav-time">10 min</span>
             </a>
             <a class="step-nav-item" href="#step-8" data-step="8">
@@ -996,10 +996,13 @@ table tbody tr:nth-child(even) { background: var(--gray-50); }
     </div>
     <div class="step-content">
 <div class="beat" data-beat="business">
-<p><strong>What the tax practice is up against.</strong> The group has three general ledgers, inherited
-from a decade of acquisitions. A partner will shortly ask what the group's GST position is. Before you
-can even attempt that, you need to see what the three systems actually send &mdash; because they do not
-describe the business the same way.</p>
+<p><strong>The engagement.</strong> Brindabella Group has appointed your firm to rebuild how it
+determines GST. Brindabella runs three general ledgers, inherited from a decade of acquisitions, and
+their tax team assembles the group position in Excel every month without ever being able to prove it.
+You are the tax transformation team on that engagement.</p>
+<p><strong>What you are up against.</strong> A partner will shortly ask what Brindabella's group GST
+position is. Before you can even attempt that, you need to see what the three systems actually send
+&mdash; because they do not describe the business the same way.</p>
 </div>
 
 <p>First confirm the setup notebook has run and left you a complete foundation.</p>
@@ -1139,7 +1142,7 @@ tax code.</p>
     </div>
     <div class="step-content">
 <div class="beat" data-beat="business">
-<p><strong>The question the partner actually asks.</strong> <em>What was the group's GST payable for the
+<p><strong>The question the partner actually asks.</strong> <em>What was Brindabella's GST payable for the
 last full quarter, by entity?</em> It is a completely reasonable question, and right now it is
 unanswerable. This step proves that in three queries rather than cataloguing every flaw in the
 data.</p>
@@ -1147,7 +1150,7 @@ data.</p>
 
 <h3>The plausible wrong answer</h3>
 
-<p>SAP is the biggest of the three systems and the one the group thinks of as <em>the</em> general
+<p>SAP is the biggest of the three systems and the one Brindabella thinks of as <em>the</em> general
 ledger. Answer the question against SAP alone.</p>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- The partner's question, answered against SAP alone.
@@ -1178,7 +1181,7 @@ your three source systems, on its own, will not open in the tool your team uses 
 aggregate scanned the whole table on the smallest warehouse Snowflake sells, with no index, no
 tuning and no preparation of any kind.</p></div></div>
 
-<div class="info-box warning"><span class="icon">&#9888;&#65039;</span><div><strong>And it is still the wrong answer</strong><p>The group has 14 legal entities. That result has 12 rows, because two entities do not exist in
+<div class="info-box warning"><span class="icon">&#9888;&#65039;</span><div><strong>And it is still the wrong answer</strong><p>Brindabella has 14 legal entities. That result has 12 rows, because two entities do not exist in
 SAP at all &mdash; Marrickville Food Co and Nullarbor Freight are booked in Oracle and in the
 legacy system. Nothing in the result grid says so. A number that is confidently wrong and gives
 no indication that it is wrong is the single most dangerous artefact in tax reporting.</p></div></div>
@@ -1629,10 +1632,10 @@ next step possible.</p></div></div>
     </div>
     <div class="step-content">
 <div class="beat" data-beat="business">
-<p><strong>The rules belong to the tax team, not to a developer.</strong> Tax logic is not a
+<p><strong>The rules belong to Brindabella's tax team, not to a developer.</strong> Tax logic is not a
 <code>CASE</code> statement. It is a body of rules with jurisdictions, effective dates and precedence,
-and it changes at short notice, usually decided by someone well outside IT. So hold it as data the tax
-team can read, review and change themselves.</p>
+and it changes at short notice, usually decided by someone well outside IT. So hold it as data their
+tax team can read, review and change themselves.</p>
 </div>
 
 <p>By the end of this step you will:</p>
@@ -1690,7 +1693,7 @@ non-overlapping validity windows:</p>
 </table>
 
 <p>That is not two rules. It is <strong>the same rule with two effective-dated versions</strong>.
-Following a review, the group corrected its position on imported professional services with effect
+Following a review, Brindabella corrected its position on imported professional services with effect
 from 1 July 2024 — before that date those acquisitions were treated as out of scope, and from that
 date the reverse charge applies. Unrecognised reverse charge on imported services is one of the most
 common findings in an Australian GST review, so this is not a hypothetical.</p>
@@ -1836,10 +1839,10 @@ thing standing between you and restating three years of lodged BAS by accident.<
 
 <h3>Change one row and watch the position move</h3>
 
-<p>So what happens when the tax team wants a change? Do it and see. Run all three statements in
+<p>So what happens when Brindabella's tax team wants a change? Do it and see. Run all three statements in
 order.</p>
 
-<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- 1. The tax team wants to model the reverse charge at a different rate.
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- 1. Brindabella's tax team wants to model the reverse charge at a different rate.
 --    They change one row of data. Not a query. Not a deployment.
 UPDATE TAX.TAX_RULE_RATE
    SET RATE_PCT = 15.00
@@ -1866,7 +1869,7 @@ UPDATE TAX.TAX_RULE_RATE
  WHERE JURISDICTION = 'AU' AND TAX_TREATMENT = 'REVERSE_CHARGE';</code></pre></div>
 
 <div class="beat" data-beat="prove">
-<p><strong>The group's computed GST position moved twice in about four seconds.</strong>
+<p><strong>Brindabella's computed GST position moved twice in about four seconds.</strong>
 <code>APPLIED_RATE_PCT</code> reads 15.00 and expected GST on those 4,690 lines rises by half to
 $39,370,891. Statement 3 puts it back and the position returns to $26,247,261.</p>
 <p><em>Snowflake: the view is generic, so a rule change takes effect on the next query. No rebuild, no
@@ -1966,7 +1969,7 @@ always sorted worst-first.</p>
 this register at all. Lab 2 comes back to this queue and uses Cortex to explain each flagged line in
 plain English.</p>
 
-<div class="info-box success"><span class="icon">✅</span><div><strong>What you just built</strong><p>Sixteen determination rules and nineteen rates, held as data the tax team owns and can change
+<div class="info-box success"><span class="icon">✅</span><div><strong>What you just built</strong><p>Sixteen determination rules and nineteen rates, held as data Brindabella's tax team owns and can change
 without a developer; a thin generic view that applies whichever rules were in force on the date of
 each transaction; and a standing exception register over 2,400,000 ledger lines.</p></div></div>
 
@@ -2025,17 +2028,17 @@ each transaction; and a standing exception register over 2,400,000 ledger lines.
 beside a ledger that knows nothing about GST — which is exactly why tax logic was kept out of the
 curated layer in Step 3.</p>
 
-<p>Every other indirect tax your practice touches has the same shape: rules the business owns,
+<p>Every other indirect tax your practice touches has the same shape: rules the tax team owns,
 effective-dated, applied by thin generic SQL. Fuel tax credits reindex twice a year. Payroll tax is
 eight jurisdictions, each with its own rate, threshold and grouping rules. Withholding tax is a
 treaty rate by country and income type. Same pattern, different table.</p>
 
-<p><strong>The ledger is bespoke to the client. The rule sets are not.</strong> The payroll tax rule
-set you build for one client is most of the payroll tax rule set for the next one.</p>
+<p><strong>Brindabella's ledger is bespoke. The rule sets are not.</strong> The payroll tax rule
+set you build here is most of the payroll tax rule set for your next client.</p>
 
 <div class="info-box success"><span class="icon">💼</span><div><strong>The commercial point</strong><p>Most of this work today is billed by the hour and thrown away when the engagement closes. Build it
-this way and the rule libraries become your firm's own intellectual property — something you deploy
-repeatedly rather than rebuild from scratch for every client.</p></div></div>
+this way and the rule libraries become your firm's own intellectual property &mdash; something you deploy
+repeatedly rather than rebuild from scratch on every engagement.</p></div></div>
 
 <div class="info-box warning"><span class="icon">⚠️</span><div><strong>The honest boundary</strong><p>Not everything is a rule table. Anything requiring iterative or circular computation needs
 procedural logic — thin capitalisation, Pillar Two top-up calculations, and consolidation
@@ -2051,7 +2054,7 @@ the pattern stops is what makes the claim credible everywhere else.</p></div></d
         <span class="step-duration">~15 min</span>
     </div>
     <div class="step-content">
-<p>You now have a computed GST position for every entity and every period. The client has a lodged
+<p>You now have a computed GST position for every entity and every period. Brindabella has a lodged
 one, sitting in <code>RAW_DATA.FCT_BAS_LODGED</code> — 532 rows, fourteen entities across
 thirty-eight complete months. Nobody has ever put the two side by side, because until this morning
 there was no computed position to compare against.</p>
@@ -2147,7 +2150,7 @@ ORDER BY TOTAL_ABS_VARIANCE DESC;</code></pre></div>
 
 <div class="beat" data-beat="prove">
 <p><strong>500 of 532 entity-periods agree to the cent.</strong> Two independently produced numbers —
-one computed from 2,400,000 ledger lines through a rule set the tax team owns, one lodged with the ATO
+one computed from 2,400,000 ledger lines through a rule set Brindabella's tax team owns, one lodged with the ATO
 months or years ago — and the variance is exactly nil, not "within tolerance". That agreement is the
 evidence the pipeline is right, and it is what makes the remaining 32 worth taking seriously. A
 reconciliation that flags everything tells you nothing; this one flags 6% of periods and defends the
@@ -2162,9 +2165,9 @@ and for how many entities.</p></div></div>
 
 <h3>The adjustment lands</h3>
 
-<p>Now the realistic complication. Somebody in the business posts a backdated journal against a
+<p>Now the realistic complication. Somebody in Brindabella's finance team posts a backdated journal against a
 period that was lodged six months ago. They are not doing anything wrong: late invoices, accruals
-reversed, an intercompany correction. It happens constantly, and the tax team almost never hears
+reversed, an intercompany correction. It happens constantly, and their tax team almost never hears
 about it.</p>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- 1. Mark the moment. Everything before this timestamp is the ledger as it
@@ -2276,9 +2279,9 @@ ORDER BY TOTAL_ABS_VARIANCE DESC;</code></pre></div>
         <code>TOTAL_ABS_VARIANCE</code>.</li>
 </ol>
 
-<p>The distribution is the finding. Variance is not spread evenly across the group — it concentrates
-in a handful of entities, and those are where the tax team should spend its week. This is the chart
-you put in front of the client, built from a query you were running anyway, and it takes four
+<p>The distribution is the finding. Variance is not spread evenly across the group &mdash; it concentrates
+in a handful of entities, and those are where Brindabella's tax team should spend its week. This is the chart
+you put in front of their Head of Tax, built from a query you were running anyway, and it takes four
 clicks.</p>
 
 <div class="info-box"><span class="icon">🔑</span><div><strong>Why this matters more than it looks</strong><p>Most analysis dies between the query and the audience. A number in a results grid is not a
@@ -2339,10 +2342,10 @@ because it exists purely to be thrown away.</p></div></div>
 <div class="beat" data-beat="business">
 <p><strong>⭐ RECOMMENDED FIRST.</strong> Of the three optional steps, do this one if you only do one.
 Everything you have built so far lives in a results grid. A results grid is fine for you and useless
-to the tax manager who has to work a month of exceptions, and worse than useless in front of a
-client. This step turns the same two views into a screen the practice can actually run a review
-from &mdash; written in Python, running inside Snowflake, with no infrastructure and no connection
-string.</p>
+to the tax manager who has to work a month of exceptions, and worse than useless in front of
+Brindabella's Head of Tax. This step turns the same two views into a screen their tax team can actually
+run a review from &mdash; written in Python, running inside Snowflake, with no infrastructure and no
+connection string.</p>
 </div>
 
 <ul class="learning-list">
@@ -2400,7 +2403,7 @@ import pandas as pd
 from datetime import datetime, timezone
 from snowflake.snowpark.context import get_active_session
 
-st.set_page_config(page_title="GST Control Tower", layout="wide")
+st.set_page_config(page_title="Brindabella Group · GST Control Tower", layout="wide")
 
 session = get_active_session()
 
@@ -2722,7 +2725,7 @@ st.markdown(f"""
 &lt;div class="topbar"&gt;
   &lt;div class="logo"&gt;&amp;#128202;&lt;/div&gt;
   &lt;div style="flex:1"&gt;
-    &lt;div class="t-title"&gt;GST Control Tower&lt;/div&gt;
+    &lt;div class="t-title"&gt;Brindabella Group &amp;middot; GST Control Tower&lt;/div&gt;
     &lt;div class="t-meta"&gt;&lt;span class="dot"&gt;&lt;/span&gt;Live &amp;nbsp;&amp;middot;&amp;nbsp;
       GSI_TAX_WORKSHOP.TAX &amp;nbsp;&amp;middot;&amp;nbsp; {int(sc['LINES']):,} ledger lines
       &amp;nbsp;&amp;middot;&amp;nbsp; Streamlit on Snowflake &amp;nbsp;&amp;middot;&amp;nbsp; {stamp}&lt;/div&gt;
@@ -2943,7 +2946,7 @@ for _, r in rows.iterrows():
         f"&lt;td style='color:{MUTED}'&gt;{txt(r.SUPPLY_CATEGORY)}&lt;/td&gt;&lt;td&gt;{txt(r.TAX_TREATMENT)}&lt;/td&gt;"
         f"&lt;td class='num' style='color:{MUTED}'&gt;{txt(r.APPLIED_RULE_ID)}&lt;/td&gt;"
         # Direction matters to a tax reviewer: under-declared GST is ATO
-        # exposure, over-declared is the firm's own money sitting with the ATO.
+        # exposure, over-declared is Brindabella's own money sitting with the ATO.
         f"&lt;td class='num' style='color:{RED if var &lt; 0 else AMBER}'&gt;{var:,.2f}&lt;/td&gt;"
         f"&lt;td style='color:{MUTED};font-size:.72rem'&gt;{txt(r.EXCEPTION_CODES)}&lt;/td&gt;"
         f"&lt;td&gt;&lt;span class='pill' style='color:{fg};background:{bg}'&gt;{r.MAX_SEVERITY}&lt;/span&gt;&lt;/td&gt;"
@@ -2973,7 +2976,7 @@ st.markdown(
 <ol>
     <li><strong>Reconciliation panel.</strong> Matched means the computed net GST equals the lodged
         figure to the cent &mdash; not within tolerance, nil. Everything in Investigate is a period
-        where the group filed a number the ledger does not support.</li>
+        where Brindabella filed a number the ledger does not support.</li>
     <li><strong>Heatmap.</strong> Hover any cell for the entity, the period and the flagged line
         count. Read down a column for a bad month across the group, and across a row for an entity
         with a standing problem.</li>
@@ -3039,18 +3042,18 @@ separate hosting, and no copy of the ledger anywhere.</p></div></div>
 <div class="step-card optional-step" id="step-7">
     <div class="step-header" onclick="toggleStep(7)">
         <span class="step-number">7</span>
-        <h2 class="step-title">The tax team sends you a rate change</h2>
+        <h2 class="step-title">Brindabella's tax team sends you a rate change</h2>
         <span class="step-duration">~10 min</span>
     </div>
     <div class="step-content">
 <p>This is how tax logic actually arrives. Not as a change request, not as a specification, not
 through a project — as a spreadsheet, by email, from the person who owns the rule. Following the
-imported-services review in Step 4, the tax team wants the same reverse-charge correction extended
+imported-services review in Step 4, Brindabella's tax team wants the same reverse-charge correction extended
 to another supply category from the start of next quarter, and they have asked you what it does to
 the group position <em>before</em> it happens.</p>
 
 <ul class="learning-list">
-    <li>Load a tax team spreadsheet into a staging table through the Snowsight interface.</li>
+    <li>Load a spreadsheet from Brindabella's tax team into a staging table through the Snowsight interface.</li>
     <li>Clone the entire environment in one statement, at no storage cost.</li>
     <li>Apply the new rules to the clone only, closing off the row they supersede.</li>
     <li>Compare the group GST position across both databases in a single query.</li>
@@ -3074,7 +3077,7 @@ bundle — three determination rows, two of them with a <code>VALID_FROM</code> 
         <strong>Load</strong>.</li>
 </ol>
 
-<p>The tax team's spreadsheet is now a governed table in the <code>TAX</code> schema, with inferred
+<p>Brindabella's spreadsheet is now a governed table in the <code>TAX</code> schema, with inferred
 types, visible to anyone with access and versioned by the platform. Nobody wrote a loader.</p>
 
 <div class="info-box"><span class="icon">💡</span><div><strong>What just changed about that spreadsheet</strong><p>It was an attachment in somebody's inbox: no history, no access control, no lineage, and a
@@ -3130,7 +3133,7 @@ SELECT * FROM VALUES
     (19,40,'AU','STANDARD_GOODS'   ,FALSE,TRUE,'TAXABLE'       ,TRUE,'2000-07-01'::DATE,'2026-09-30'::DATE,'Superseded - imported standard goods treated as ordinary taxable supply until 30 Sep 2026')
 WHERE NOT EXISTS (SELECT 1 FROM GSI_TAX_WORKSHOP.TAX.STG_RULE_UPDATE);
 
--- 1. Insert the tax team's new determination rows into the CLONE.
+-- 1. Insert Brindabella's new determination rows into the CLONE.
 INSERT INTO GSI_TAX_SCENARIO.TAX.TAX_RULE_DETERMINATION
     (RULE_ID, PRIORITY, JURISDICTION, SUPPLY_CATEGORY, SUPPLIER_GST_REGISTERED,
      IS_CROSS_BORDER, TAX_TREATMENT, RECOVERABLE, VALID_FROM, VALID_TO, RULE_DESCRIPTION)
@@ -3189,10 +3192,10 @@ FROM production p
 FULL OUTER JOIN scenario s ON s.ENTITY_NAME = p.ENTITY_NAME
 ORDER BY ABS(COALESCE(s.NET_GST, 0) - COALESCE(p.NET_GST, 0)) DESC;</code></pre></div>
 
-<p>One query, two databases, fourteen entities, and the answer the tax team asked for. Because the
+<p>One query, two databases, fourteen entities, and the answer Brindabella's tax team asked for. Because the
 new rules carry a future <code>VALID_FROM</code>, the impact on <em>historical</em> periods is nil by
 construction — which is itself the finding: no lodged period is
-restated. The forward effect appears the moment those periods close, and the tax team can see the
+restated. The forward effect appears the moment those periods close, and their tax team can see the
 number now rather than discovering it in a quarterly true-up.</p>
 
 <h3>Throw the scenario away</h3>
@@ -3203,7 +3206,7 @@ number now rather than discovering it in a quarterly true-up.</p>
 scenario after all, <code>UNDROP DATABASE GSI_TAX_SCENARIO;</code> brings it back within the
 retention window.</p>
 
-<div class="info-box success"><span class="icon">⚡</span><div><strong>What the exercise actually cost</strong><p>The tax team's spreadsheet became governed, effective-dated reference data. Modelling its impact
+<div class="info-box success"><span class="icon">⚡</span><div><strong>What the exercise actually cost</strong><p>Brindabella's spreadsheet became governed, effective-dated reference data. Modelling its impact
 across a 2,400,000-line ledger cost one clone — no environment request, no data copy, no storage and
 production untouched. Worth comparing against what the same question costs today: who provisions the
 sandbox, how long the refresh takes, and how stale the data is by the time the answer arrives.</p></div></div>
@@ -3290,7 +3293,7 @@ replication of the shared database first, which is a separate exercise. Skip thi
 workshop; the two blocks above are the part that teaches the pattern.</p></div></div>
 
 <div class="info-box success"><span class="icon">✅</span><div><strong>What you would have done instead</strong><p>Exported 2,400,000 rows to a file, agreed a transfer mechanism with the auditor, obtained approval
-to send client ledger data outside the organisation, and then had no way to withdraw it, no way to
+to send Brindabella's ledger data outside their environment, and then had no way to withdraw it, no way to
 tell whether it had been copied again, and no answer when the auditor asked three weeks later whether
 their extract was still current. A share replaces all of that with three grants and one statement you
 can reverse.</p></div></div>

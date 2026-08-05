@@ -1,7 +1,7 @@
 <div class="beat" data-beat="business">
-<p><strong>Where the tax practice starts.</strong> The group has grown by acquisition and now runs
-three general ledgers that never agreed with each other. There is no single place that holds the
-group's GST position, so every month it gets rebuilt by hand in a spreadsheet.</p>
+<p><strong>Where the engagement starts.</strong> Brindabella Group has grown by acquisition and now runs
+three general ledgers that never agreed with each other. There is no single place that holds their
+GST position, so every month it gets rebuilt by hand in a spreadsheet.</p>
 </div>
 
 <div class="beat" data-beat="decision">
@@ -16,7 +16,7 @@ into one layer and nobody can tell a data fault from a tax position.</p>
 <tbody>
 <tr><td><code>RAW_DATA</code></td><td>The three ERP extracts and reference data, exactly as landed. Never edited.</td><td>Setup</td></tr>
 <tr><td><code>CURATED</code></td><td>Conformance only: parsed dates, resolved entities, mapped accounts, normalised signs. No tax logic.</td><td>Lab 1 Step 3</td></tr>
-<tr><td><code>TAX</code></td><td>Tax judgement: the rule tables the tax team owns, the determined position, the exception register.</td><td>Setup and Lab 1 Steps 4-5</td></tr>
+<tr><td><code>TAX</code></td><td>Tax judgement: the rule tables Brindabella's tax team owns, the determined position, the exception register.</td><td>Setup and Lab 1 Steps 4-5</td></tr>
 <tr><td><code>AI_INSIGHTS</code></td><td>Output of Cortex functions over invoice text.</td><td>Lab 2</td></tr>
 <tr><td><code>AGENTS</code></td><td>The semantic view and the Cortex Agent.</td><td>Lab 2 Step 5</td></tr>
 <tr><td><code>APPS</code></td><td>Streamlit applications.</td><td>Lab 1 Step 6</td></tr>
@@ -51,7 +51,8 @@ CREATE SCHEMA IF NOT EXISTS AUDIT;
 
 -- ---------------------------------------------------------------------
 -- DIM_LEGAL_ENTITY — 14 rows. The crosswalk: three ERP identifiers,
--- one group entity. NULLs mean the entity does not exist in that system.
+-- one Brindabella Group entity. NULLs mean the entity does not exist in
+-- that system.
 -- ---------------------------------------------------------------------
 CREATE OR REPLACE TABLE RAW_DATA.DIM_LEGAL_ENTITY (
     ENTITY_ID            VARCHAR(10),

@@ -1,10 +1,10 @@
 <div class="beat" data-beat="business">
 <p><strong>⭐ RECOMMENDED FIRST.</strong> Of the three optional steps, do this one if you only do one.
 Everything you have built so far lives in a results grid. A results grid is fine for you and useless
-to the tax manager who has to work a month of exceptions, and worse than useless in front of a
-client. This step turns the same two views into a screen the practice can actually run a review
-from &mdash; written in Python, running inside Snowflake, with no infrastructure and no connection
-string.</p>
+to the tax manager who has to work a month of exceptions, and worse than useless in front of
+Brindabella's Head of Tax. This step turns the same two views into a screen their tax team can actually
+run a review from &mdash; written in Python, running inside Snowflake, with no infrastructure and no
+connection string.</p>
 </div>
 
 <ul class="learning-list">
@@ -62,7 +62,7 @@ import pandas as pd
 from datetime import datetime, timezone
 from snowflake.snowpark.context import get_active_session
 
-st.set_page_config(page_title="GST Control Tower", layout="wide")
+st.set_page_config(page_title="Brindabella Group · GST Control Tower", layout="wide")
 
 session = get_active_session()
 
@@ -384,7 +384,7 @@ st.markdown(f"""
 &lt;div class="topbar"&gt;
   &lt;div class="logo"&gt;&amp;#128202;&lt;/div&gt;
   &lt;div style="flex:1"&gt;
-    &lt;div class="t-title"&gt;GST Control Tower&lt;/div&gt;
+    &lt;div class="t-title"&gt;Brindabella Group &amp;middot; GST Control Tower&lt;/div&gt;
     &lt;div class="t-meta"&gt;&lt;span class="dot"&gt;&lt;/span&gt;Live &amp;nbsp;&amp;middot;&amp;nbsp;
       GSI_TAX_WORKSHOP.TAX &amp;nbsp;&amp;middot;&amp;nbsp; {int(sc['LINES']):,} ledger lines
       &amp;nbsp;&amp;middot;&amp;nbsp; Streamlit on Snowflake &amp;nbsp;&amp;middot;&amp;nbsp; {stamp}&lt;/div&gt;
@@ -605,7 +605,7 @@ for _, r in rows.iterrows():
         f"&lt;td style='color:{MUTED}'&gt;{txt(r.SUPPLY_CATEGORY)}&lt;/td&gt;&lt;td&gt;{txt(r.TAX_TREATMENT)}&lt;/td&gt;"
         f"&lt;td class='num' style='color:{MUTED}'&gt;{txt(r.APPLIED_RULE_ID)}&lt;/td&gt;"
         # Direction matters to a tax reviewer: under-declared GST is ATO
-        # exposure, over-declared is the firm's own money sitting with the ATO.
+        # exposure, over-declared is Brindabella's own money sitting with the ATO.
         f"&lt;td class='num' style='color:{RED if var &lt; 0 else AMBER}'&gt;{var:,.2f}&lt;/td&gt;"
         f"&lt;td style='color:{MUTED};font-size:.72rem'&gt;{txt(r.EXCEPTION_CODES)}&lt;/td&gt;"
         f"&lt;td&gt;&lt;span class='pill' style='color:{fg};background:{bg}'&gt;{r.MAX_SEVERITY}&lt;/span&gt;&lt;/td&gt;"
@@ -635,7 +635,7 @@ st.markdown(
 <ol>
     <li><strong>Reconciliation panel.</strong> Matched means the computed net GST equals the lodged
         figure to the cent &mdash; not within tolerance, nil. Everything in Investigate is a period
-        where the group filed a number the ledger does not support.</li>
+        where Brindabella filed a number the ledger does not support.</li>
     <li><strong>Heatmap.</strong> Hover any cell for the entity, the period and the flagged line
         count. Read down a column for a bad month across the group, and across a row for an entity
         with a standing problem.</li>

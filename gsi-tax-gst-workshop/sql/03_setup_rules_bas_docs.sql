@@ -16,7 +16,7 @@ USE DATABASE GSI_TAX_WORKSHOP;
 
 -- ---------------------------------------------------------------------
 -- TAX_RULE_DETERMINATION — 16 rows. NULL = wildcard. Lower PRIORITY wins.
--- Rules 9 and 16 are the effective-dated pair: the group corrected its
+-- Rules 9 and 16 are the effective-dated pair: Brindabella corrected its
 -- imported-professional-services position with effect from 1 July 2024.
 -- ---------------------------------------------------------------------
 CREATE OR REPLACE TABLE TAX.TAX_RULE_DETERMINATION (

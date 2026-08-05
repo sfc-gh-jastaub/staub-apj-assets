@@ -11,7 +11,8 @@ names, row counts, or column names. Everything you need is here.
 |---|---|
 | Workshop title | GST Analytics & AI on Snowflake for Global Solution Integrators |
 | Audience | Indirect tax practitioners at a Global Solution Integrator. Strong SQL / Excel / Alteryx. New to Snowflake. Mixed technical + business. |
-| Vendor neutrality | **Never name a specific GSI.** Use "your firm", "the tax practice", "your client". Reusable across firms. |
+| Vendor neutrality | **Never name a specific GSI.** The participants' firm is always "your firm". Reusable across firms. |
+| Client | **Brindabella Group** — fictional acquisitive Australian group, ~$4B revenue, 14 entities, monthly BAS. **The client IS named; the GSI is NOT.** See §0.2. |
 | Region | Australia. AU is the working jurisdiction and **every worked example is Australian**. NZ and SG entities exist in the group structure only, to make cross-border and consolidation realistic. |
 | Account type | Client-owned **Enterprise** account. NOT a trial. Masking policies, extended Time Travel, secure shares all available. |
 | Database | `GSI_TAX_WORKSHOP` |
@@ -107,6 +108,31 @@ the step table. Do not exceed it. If content does not fit, cut the content — d
 
 **A participant who runs only the required blocks must still see the entire story.** Everything
 else is prose.
+
+---
+
+## 0.2 THE ENGAGEMENT — NAMING CONVENTION (BINDING)
+
+There are two parties in this workshop and they must never blur. Brindabella Group is the client;
+the participants are tax transformation consultants their firm has engaged to build the solution.
+
+| Concept | Term | Notes |
+|---|---|---|
+| The client group | **Brindabella Group** on first mention in a step, **Brindabella** thereafter | Fictional. Stated as such once, on the index page. |
+| The client's tax function | **Brindabella's tax team** | Owns the rule tables. Sends the Lab 1 Step 7 rate change. |
+| The participants | **you**, **your team** | Tax transformation consultants on the engagement. |
+| The consultancy | **your firm** | Carries the reusable-IP argument in Lab 1 Step 4. |
+| Future clients | **your next client** | Never "every client" — the plural is what makes the IP point land. |
+| A specific GSI | *never named* | Unchanged non-negotiable. |
+
+**Banned as client references:** "the client", "the business", "the organisation", and "the group"
+used as a bare noun where Brindabella is meant. "The group position" and "group GST" remain correct —
+those are tax terms of art, not references to the company.
+
+**Why the two-party split matters.** Rule ownership sitting with Brindabella's tax team rather than
+with you is what makes Lab 1 Step 7 a handover proof point: a rate change arrives *from* the client
+*to* the consultant, and the rules absorb it without a code deployment. Collapse the two parties and
+that step has no sender.
 
 ---
 
@@ -401,7 +427,7 @@ and another is not.
    `V_GST_EXCEPTIONS`.
 
 4. **Rules are data, not code.** ⭐ **This is now the central message of Step 4 and the workshop's
-   main architectural point.** Rates and treatment mappings are effective-dated rows the tax team
+   main architectural point.** Rates and treatment mappings are effective-dated rows Brindabella's tax team
    owns and can change themselves — not `CASE` statements buried in a query that need a developer
    and a release. Also state briefly that we do not store SQL fragments in a `VARCHAR` and evaluate
    them: it cannot be tested and it is an injection surface.
@@ -1049,7 +1075,7 @@ The six `AI_CLASSIFY` categories, exactly:
 | 4 | `step-4` | The tax rules layer | 15 | **5** | CORE |
 | 5 | `step-5` | Reconcile, then survive the audit | 15 | **5** | CORE |
 | 6 | `step-6` | ⭐ OPTIONAL · Streamlit tax control tower | 12 | **2** | OPTIONAL |
-| 7 | `step-7` | OPTIONAL · The tax team sends you a rate change | 10 | **4** | OPTIONAL |
+| 7 | `step-7` | OPTIONAL · Brindabella's tax team sends you a rate change | 10 | **4** | OPTIONAL |
 | 8 | `step-8` | OPTIONAL · Share the snapshot with the auditor | 6 | **2** | OPTIONAL |
 
 `coreSteps = 5`, `totalSteps = 8`. **Core total: 60 min, 19 code blocks.**
@@ -1208,11 +1234,11 @@ FROM CURATED.GL_HARMONISED;
 ### Step 4 — The tax rules layer · 15 min · **MAX 5 BLOCKS**
 
 The most important step in the lab, and the one with a single clear message: **the rules live in a
-table that the tax team owns, not in code that a developer owns.**
+table that Brindabella's tax team owns, not in code that a developer owns.**
 
 **Narrative.** Tax logic is not a `CASE` statement. It is a body of rules with jurisdictions,
 effective dates and precedence, and it changes without warning — usually at short notice, usually
-not by anyone in IT. So we hold it as data the tax team can read, review and change themselves.
+not by anyone in IT. So we hold it as data Brindabella's tax team can read, review and change themselves.
 
 **Block 1 — the rules, as data.** Both rule tables in one block, two `SELECT`s. A tax person reads
 these two result grids and understands the entire determination logic of the system without
@@ -1292,11 +1318,11 @@ ASCII above is the layout brief, not the output.
 1. What you built is not "the tax rules" — it is **one rule set, for one tax**, sitting beside a
    ledger that knows nothing about GST. That is exactly why we kept tax logic out of the curated
    layer in Step 3.
-2. Every other indirect tax your practice touches has the same shape: rules the business owns,
+2. Every other indirect tax your practice touches has the same shape: rules the tax team owns,
    effective-dated, applied by thin generic SQL. Fuel tax credits reindex twice a year. Payroll tax
    is eight jurisdictions each with its own rate, threshold and grouping rules. Withholding tax is a
    treaty rate by country and income type. Same pattern, different table.
-3. **The ledger is bespoke to the client. The rule sets are not.** The payroll tax rule set you build
+3. **Brindabella's ledger is bespoke. The rule sets are not.** The payroll tax rule set you build
    for one client is most of the payroll tax rule set for the next one.
 
 **The commercial point — say this one out loud, it is the partner's takeaway.**
@@ -1326,7 +1352,7 @@ push back.
 
 ### Step 5 — Reconcile, then survive the audit · 15 min · **MAX 5 BLOCKS**
 
-**Narrative.** You now have a computed GST position. The client has a lodged one. Compare them —
+**Narrative.** You now have a computed GST position. Brindabella has a lodged one. Compare them —
 then discover that someone has posted a backdated adjustment since lodgement, and the auditor
 asks the question every tax practitioner dreads: *show me the ledger exactly as it stood when we
 lodged.*
@@ -1382,10 +1408,10 @@ Requirements: `get_active_session()`; `@st.cache_data(ttl=600)` on every query f
 
 ---
 
-### Step 7 — OPTIONAL · The tax team sends you a rate change · 10 min · **MAX 4 BLOCKS**
+### Step 7 — OPTIONAL · Brindabella's tax team sends you a rate change · 10 min · **MAX 4 BLOCKS**
 
 **Narrative.** This is how tax logic actually arrives: a spreadsheet, by email, from the person
-who owns the rule. Following the imported-services review, the tax team wants the same reverse-charge
+who owns the rule. Following the imported-services review, Brindabella's tax team wants the same reverse-charge
 correction extended to another supply category from the start of next quarter. You have been asked
 what it does to the group position — *before* it happens.
 
@@ -1398,7 +1424,7 @@ what it does to the group position — *before* it happens.
 4. **Block 3** — one query comparing the group GST position across both databases side by side.
 5. **Block 4** — `DROP DATABASE GSI_TAX_SCENARIO;`
 
-**Teaching point.** The tax team's spreadsheet became governed, effective-dated reference data,
+**Teaching point.** Brindabella's tax team's spreadsheet became governed, effective-dated reference data,
 and modelling its impact cost one clone and four minutes — with production untouched and no lodged
 period restated.
 
@@ -1464,7 +1490,7 @@ script. Do not add `SHOW DYNAMIC TABLES` here — it was covered in Lab 1.
 ### Step 2 — Classify the supply from the narrative · 15 min · **MAX 4 BLOCKS**
 
 **Narrative.** Supply category drives treatment, and it is a human judgement made at data entry
-by someone who is not in the tax team. That is where miscoding is born.
+by someone who is not in Brindabella's tax team. That is where miscoding is born.
 
 **Block 1 — the narratives and the AI call together.** Select 10 rows showing
 `INVOICE_NARRATIVE`, `BOOKED_SUPPLY_CATEGORY` and `AI_CLASSIFY(...)` side by side. One block does
@@ -1482,7 +1508,7 @@ unsaid invites the question at the worst moment.
 booked as professional fees is the one that costs money.
 
 **Block 4 — close the loop.** Join flagged docs back to `TAX.V_GST_EXCEPTIONS` on
-`(SOURCE_SYSTEM, SOURCE_DOC_REF)` so AI findings land in the same work queue the tax team already
+`(SOURCE_SYSTEM, SOURCE_DOC_REF)` so AI findings land in the same work queue Brindabella's tax team already
 uses.
 
 **Teaching point.** AI did not replace the rules. It supplied a missing attribute *to* the rules.
@@ -1663,7 +1689,7 @@ not be shown 62%.
 - Prerequisite callout at the top of Lab 2.
 - No competitor product names anywhere.
 - No credentials, no real account identifiers, no real ABNs, no real PII.
-- No specific GSI named. "Your firm", "the tax practice", "your client".
+- No specific GSI named. "Your firm", "your team". The client is **Brindabella Group** — see §0.2.
 - Footer: `© 2026 Snowflake Inc. All Rights Reserved.`
 - **No Colombia community CTA.** APJ audience.
 
@@ -1676,7 +1702,7 @@ Lab 2 depends on Lab 1, and the synthetic-data disclaimer. Same brand tokens.
 **Also include a short "where this goes next" section** near the foot of the index, reusing the
 Step 4 closing-panel diagram (§6, Step 4 closing panel) at smaller scale: the conformed ledger with
 GST built and FBT, fuel tax credits, payroll tax and withholding tax greyed out beside it. One
-sentence beneath it — the ledger is bespoke to the client, the rule sets are reusable IP. This is
+sentence beneath it — Brindabella's ledger is bespoke, the rule sets are reusable IP. This is
 the page a partner will still have open after the session, so the extensibility story belongs here
 as well as in the lab.
 

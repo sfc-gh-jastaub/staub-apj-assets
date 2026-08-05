@@ -4,11 +4,15 @@ Brief for `/snowflake-hol-generator`. Describes the flow this workshop landed on
 
 ## Use case — one only
 
-An Australian group has grown by acquisition and runs **three general ledgers** (SAP, Oracle, a legacy
-AP system) that have never agreed. The tax practice rebuilds the group **GST** position in Excel every
-month, cannot reconcile it to what was lodged with the ATO, and cannot reproduce a prior filing when
-asked. Audience: indirect-tax practitioners at a consulting firm — strong SQL and Excel, new to
-Snowflake. Vendor-neutral throughout ("your firm", "the tax practice", "your client").
+**Brindabella Group** is a fictional Australian group that has grown by acquisition and runs **three
+general ledgers** (SAP, Oracle, a legacy AP system) that have never agreed. Brindabella's tax team
+rebuilds the group **GST** position in Excel every month, cannot reconcile it to what was lodged with
+the ATO, and cannot reproduce a prior filing when asked. **Your firm has been engaged to fix it.**
+
+Participants play the tax transformation consultants on that engagement: they build the solution on
+Snowflake and hand the rule layer back to Brindabella's tax team. Audience: indirect-tax
+practitioners at a consulting firm — strong SQL and Excel, new to Snowflake. The client is named;
+the firm never is ("your firm", "your team").
 
 Australian GST only. No second tax domain — a second thread pollutes the story.
 
@@ -40,9 +44,9 @@ questions with different owners.
    quantify every defect in one query. Includes a cell **designed to fail** (naive `UNION ALL`).
 3. **Conform** — one Dynamic Table unions all three, resolves dimensions, and *labels* data-quality
    problems rather than dropping rows. Includes a cell **designed to fail** (strict `TO_DATE`).
-4. **Determine** — tax rules as **data the tax team owns**: a decision table with wildcard predicates,
-   effective-dated rates, most-specific-wins precedence via `QUALIFY`. Change one row, watch the group
-   position move, put it back. Then a standing exception register.
+4. **Determine** — tax rules as **data Brindabella's tax team owns**: a decision table with wildcard
+   predicates, effective-dated rates, most-specific-wins precedence via `QUALIFY`. Change one row, watch
+   the group position move, put it back. Then a standing exception register.
 5. **Reconcile** — computed position against lodged BAS; post a backdated adjustment and watch a tied
    period break; recover the as-lodged ledger with Time Travel; take a zero-copy audit clone.
 
@@ -70,7 +74,7 @@ Illustrative, not mandatory — combine or drop beats where they do not apply:
 
 **business step → technical decision → do → prove**
 
-- *Business* — what the tax practice does today and why it hurts.
+- *Business* — what Brindabella's tax team does today and why it hurts.
 - *Decision* — the Snowflake feature **and the alternative it beat**. Omit where nothing was rejected.
 - *Prove* — what the result demonstrates, with expected figures inline; name the feature here if the
   decision beat was skipped.
@@ -84,6 +88,10 @@ tables — **not** from emoji legends. Banned: manufactured-drama headings ("The
 formulaic openers that announce a point rather than making it ("The teaching point — X"), marketing
 verbs (unlock, leverage, seamless, powerful), and instructor asides in a participant notebook ("ask the
 room", "say this out loud"). State the finding and let the number carry it.
+
+**Two parties, never blurred.** Brindabella (the client, whose tax team owns the rules) and you (the
+consultant building it). Bare "the client", "the business" and "the organisation" are banned as client
+references — name Brindabella. "The group position" stays: that is a tax term, not the company.
 
 ## Non-negotiables
 

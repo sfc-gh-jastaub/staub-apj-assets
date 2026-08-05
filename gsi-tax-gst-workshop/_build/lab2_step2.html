@@ -1,6 +1,6 @@
 <p>Supply category drives tax treatment. In Lab 1 it arrived through a join to
 <code>DIM_ACCOUNT_MAPPING</code>, which means it is really a property of the general ledger account
-somebody chose at data entry — a judgement made in seconds, by a person who is not in the tax team,
+somebody chose at data entry — a judgement made in seconds, by a person who is not in Brindabella's tax team,
 against a chart of accounts they did not design. That is where miscoding is born, and no amount of
 rule logic downstream can detect it, because the rules faithfully apply the correct treatment to the
 wrong category.</p>
@@ -9,7 +9,7 @@ wrong category.</p>
     <li>Read the invoice narrative that has been sitting unused since setup.</li>
     <li>Have a language model classify the supply from that narrative in one function call.</li>
     <li>Compare what the AI read against what the ledger booked, and find the disagreements.</li>
-    <li>Push the findings into the exception register the tax team already works from.</li>
+    <li>Push the findings into the exception register Brindabella's tax team already works from.</li>
 </ul>
 
 <h3>Narrative, booking and verdict side by side</h3>
@@ -119,7 +119,7 @@ document, and you do not want it disappearing from the count.</p>
 
 <h3>The miscoding pattern</h3>
 
-<p>Individual disagreements are interesting. The pattern across them is what a tax practice acts
+<p>Individual disagreements are interesting. The pattern across them is what you act
 on, because it points at a process rather than a transaction.</p>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>SELECT
@@ -153,7 +153,7 @@ because nothing could query it.</p></div></div>
 <h3>Close the loop into the existing work queue</h3>
 
 <p>A finding that lives in its own table is a finding nobody actions. The join below lands the AI
-results in <code>TAX.V_GST_EXCEPTIONS</code> — the same register the tax team has been working from
+results in <code>TAX.V_GST_EXCEPTIONS</code> &mdash; the same register their tax team has been working from
 since Lab 1 — on <code>(SOURCE_SYSTEM, SOURCE_DOC_REF)</code>.</p>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>SELECT

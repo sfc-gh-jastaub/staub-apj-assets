@@ -165,7 +165,7 @@ code:not(pre code) {
     padding: var(--space-2xl) var(--space-xl);
 }
 
-.hero-container { max-width: 1200px; margin: 0 auto; }
+.hero-container { max-width: 1320px; margin: 0 auto; }
 
 .hero-badge {
     display: inline-block;
@@ -234,7 +234,7 @@ code:not(pre code) {
 .content-section { padding: var(--space-2xl) var(--space-xl); }
 .content-section.alt-bg { background: #ffffff; }
 
-.section-container { max-width: 1200px; margin: 0 auto; }
+.section-container { max-width: 1320px; margin: 0 auto; }
 
 .section-title {
     font-size: 1.5rem;
@@ -672,7 +672,7 @@ table tbody tr:nth-child(even) { background: var(--gray-50); }
 /* ---------- Resources ---------- */
 .resources-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr));
     gap: var(--space-lg);
 }
 

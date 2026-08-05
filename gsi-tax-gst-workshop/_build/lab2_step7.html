@@ -5,12 +5,12 @@ in an inbox.</p>
 
 <p><code>CORRESPONDENCE_TEXT</code> on <code>RAW_DATA.DOC_TAX_INVOICE</code> holds the message
 attached to each document. This step reads the tone of it, so the queue can be worked in the
-order the tax team should actually work it.</p>
+order Brindabella's tax team should actually work it.</p>
 
 <ul class="learning-list">
     <li>Return a sentiment label from free text with one function call.</li>
     <li>Handle all four labels the function can return.</li>
-    <li>Turn the label into a triage priority the tax team can sort on.</li>
+    <li>Turn the label into a triage priority their tax team can sort on.</li>
 </ul>
 
 <div class="info-box warning"><span class="icon">⚠️</span><div><strong><code>AI_SENTIMENT</code> returns <code>mixed</code> as well as positive, negative and neutral</strong><p>A <code>CASE</code> that
@@ -124,7 +124,7 @@ and you see it as a count rather than as a silently mis-prioritised message mont
 <div class="info-box"><span class="icon">🔑</span><div><strong>Sentiment is a routing signal, not a tax position</strong><p>Nothing in this step changes a treatment, a rate or a return. An angry supplier is not
 evidence that the GST is wrong, and a grateful one is not evidence that it is right — the
 determination rules from Lab 1 remain the only thing that decides the tax outcome. What this
-gives the tax practice is order of work: 25 messages sorted so the disputed and the partly
+gives their tax team is order of work: 25 messages sorted so the disputed and the partly
 disputed reach a human first, and the acknowledgements wait. <code>NEEDS_RESPONSE</code> is
 the column the queue actually filters on.</p></div></div>
 

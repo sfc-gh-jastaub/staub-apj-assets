@@ -1,11 +1,11 @@
 <p>This is how tax logic actually arrives. Not as a change request, not as a specification, not
 through a project — as a spreadsheet, by email, from the person who owns the rule. Following the
-imported-services review in Step 4, the tax team wants the same reverse-charge correction extended
+imported-services review in Step 4, Brindabella's tax team wants the same reverse-charge correction extended
 to another supply category from the start of next quarter, and they have asked you what it does to
 the group position <em>before</em> it happens.</p>
 
 <ul class="learning-list">
-    <li>Load a tax team spreadsheet into a staging table through the Snowsight interface.</li>
+    <li>Load a spreadsheet from Brindabella's tax team into a staging table through the Snowsight interface.</li>
     <li>Clone the entire environment in one statement, at no storage cost.</li>
     <li>Apply the new rules to the clone only, closing off the row they supersede.</li>
     <li>Compare the group GST position across both databases in a single query.</li>
@@ -29,7 +29,7 @@ bundle — three determination rows, two of them with a <code>VALID_FROM</code> 
         <strong>Load</strong>.</li>
 </ol>
 
-<p>The tax team's spreadsheet is now a governed table in the <code>TAX</code> schema, with inferred
+<p>Brindabella's spreadsheet is now a governed table in the <code>TAX</code> schema, with inferred
 types, visible to anyone with access and versioned by the platform. Nobody wrote a loader.</p>
 
 <div class="info-box"><span class="icon">💡</span><div><strong>What just changed about that spreadsheet</strong><p>It was an attachment in somebody's inbox: no history, no access control, no lineage, and a
@@ -85,7 +85,7 @@ SELECT * FROM VALUES
     (19,40,'AU','STANDARD_GOODS'   ,FALSE,TRUE,'TAXABLE'       ,TRUE,'2000-07-01'::DATE,'2026-09-30'::DATE,'Superseded - imported standard goods treated as ordinary taxable supply until 30 Sep 2026')
 WHERE NOT EXISTS (SELECT 1 FROM GSI_TAX_WORKSHOP.TAX.STG_RULE_UPDATE);
 
--- 1. Insert the tax team's new determination rows into the CLONE.
+-- 1. Insert Brindabella's new determination rows into the CLONE.
 INSERT INTO GSI_TAX_SCENARIO.TAX.TAX_RULE_DETERMINATION
     (RULE_ID, PRIORITY, JURISDICTION, SUPPLY_CATEGORY, SUPPLIER_GST_REGISTERED,
      IS_CROSS_BORDER, TAX_TREATMENT, RECOVERABLE, VALID_FROM, VALID_TO, RULE_DESCRIPTION)
@@ -144,10 +144,10 @@ FROM production p
 FULL OUTER JOIN scenario s ON s.ENTITY_NAME = p.ENTITY_NAME
 ORDER BY ABS(COALESCE(s.NET_GST, 0) - COALESCE(p.NET_GST, 0)) DESC;</code></pre></div>
 
-<p>One query, two databases, fourteen entities, and the answer the tax team asked for. Because the
+<p>One query, two databases, fourteen entities, and the answer Brindabella's tax team asked for. Because the
 new rules carry a future <code>VALID_FROM</code>, the impact on <em>historical</em> periods is nil by
 construction — which is itself the finding: no lodged period is
-restated. The forward effect appears the moment those periods close, and the tax team can see the
+restated. The forward effect appears the moment those periods close, and their tax team can see the
 number now rather than discovering it in a quarterly true-up.</p>
 
 <h3>Throw the scenario away</h3>
@@ -158,7 +158,7 @@ number now rather than discovering it in a quarterly true-up.</p>
 scenario after all, <code>UNDROP DATABASE GSI_TAX_SCENARIO;</code> brings it back within the
 retention window.</p>
 
-<div class="info-box success"><span class="icon">⚡</span><div><strong>What the exercise actually cost</strong><p>The tax team's spreadsheet became governed, effective-dated reference data. Modelling its impact
+<div class="info-box success"><span class="icon">⚡</span><div><strong>What the exercise actually cost</strong><p>Brindabella's spreadsheet became governed, effective-dated reference data. Modelling its impact
 across a 2,400,000-line ledger cost one clone — no environment request, no data copy, no storage and
 production untouched. Worth comparing against what the same question costs today: who provisions the
 sandbox, how long the refresh takes, and how stale the data is by the time the answer arrives.</p></div></div>

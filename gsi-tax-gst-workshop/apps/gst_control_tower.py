@@ -6,7 +6,7 @@ import pandas as pd
 from datetime import datetime, timezone
 from snowflake.snowpark.context import get_active_session
 
-st.set_page_config(page_title="GST Control Tower", layout="wide")
+st.set_page_config(page_title="Brindabella Group · GST Control Tower", layout="wide")
 
 session = get_active_session()
 
@@ -328,7 +328,7 @@ st.markdown(f"""
 <div class="topbar">
   <div class="logo">&#128202;</div>
   <div style="flex:1">
-    <div class="t-title">GST Control Tower</div>
+    <div class="t-title">Brindabella Group &middot; GST Control Tower</div>
     <div class="t-meta"><span class="dot"></span>Live &nbsp;&middot;&nbsp;
       GSI_TAX_WORKSHOP.TAX &nbsp;&middot;&nbsp; {int(sc['LINES']):,} ledger lines
       &nbsp;&middot;&nbsp; Streamlit on Snowflake &nbsp;&middot;&nbsp; {stamp}</div>
@@ -549,7 +549,7 @@ for _, r in rows.iterrows():
         f"<td style='color:{MUTED}'>{txt(r.SUPPLY_CATEGORY)}</td><td>{txt(r.TAX_TREATMENT)}</td>"
         f"<td class='num' style='color:{MUTED}'>{txt(r.APPLIED_RULE_ID)}</td>"
         # Direction matters to a tax reviewer: under-declared GST is ATO
-        # exposure, over-declared is the firm's own money sitting with the ATO.
+        # exposure, over-declared is Brindabella's own money sitting with the ATO.
         f"<td class='num' style='color:{RED if var < 0 else AMBER}'>{var:,.2f}</td>"
         f"<td style='color:{MUTED};font-size:.72rem'>{txt(r.EXCEPTION_CODES)}</td>"
         f"<td><span class='pill' style='color:{fg};background:{bg}'>{r.MAX_SEVERITY}</span></td>"

@@ -1,4 +1,4 @@
-<p>You now have a computed GST position for every entity and every period. The client has a lodged
+<p>You now have a computed GST position for every entity and every period. Brindabella has a lodged
 one, sitting in <code>RAW_DATA.FCT_BAS_LODGED</code> — 532 rows, fourteen entities across
 thirty-eight complete months. Nobody has ever put the two side by side, because until this morning
 there was no computed position to compare against.</p>
@@ -94,7 +94,7 @@ ORDER BY TOTAL_ABS_VARIANCE DESC;</code></pre></div>
 
 <div class="beat" data-beat="prove">
 <p><strong>500 of 532 entity-periods agree to the cent.</strong> Two independently produced numbers —
-one computed from 2,400,000 ledger lines through a rule set the tax team owns, one lodged with the ATO
+one computed from 2,400,000 ledger lines through a rule set Brindabella's tax team owns, one lodged with the ATO
 months or years ago — and the variance is exactly nil, not "within tolerance". That agreement is the
 evidence the pipeline is right, and it is what makes the remaining 32 worth taking seriously. A
 reconciliation that flags everything tells you nothing; this one flags 6% of periods and defends the
@@ -109,9 +109,9 @@ and for how many entities.</p></div></div>
 
 <h3>The adjustment lands</h3>
 
-<p>Now the realistic complication. Somebody in the business posts a backdated journal against a
+<p>Now the realistic complication. Somebody in Brindabella's finance team posts a backdated journal against a
 period that was lodged six months ago. They are not doing anything wrong: late invoices, accruals
-reversed, an intercompany correction. It happens constantly, and the tax team almost never hears
+reversed, an intercompany correction. It happens constantly, and their tax team almost never hears
 about it.</p>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- 1. Mark the moment. Everything before this timestamp is the ledger as it
@@ -223,9 +223,9 @@ ORDER BY TOTAL_ABS_VARIANCE DESC;</code></pre></div>
         <code>TOTAL_ABS_VARIANCE</code>.</li>
 </ol>
 
-<p>The distribution is the finding. Variance is not spread evenly across the group — it concentrates
-in a handful of entities, and those are where the tax team should spend its week. This is the chart
-you put in front of the client, built from a query you were running anyway, and it takes four
+<p>The distribution is the finding. Variance is not spread evenly across the group &mdash; it concentrates
+in a handful of entities, and those are where Brindabella's tax team should spend its week. This is the chart
+you put in front of their Head of Tax, built from a query you were running anyway, and it takes four
 clicks.</p>
 
 <div class="info-box"><span class="icon">🔑</span><div><strong>Why this matters more than it looks</strong><p>Most analysis dies between the query and the audience. A number in a results grid is not a
