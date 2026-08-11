@@ -1,14 +1,19 @@
 # gsi-tax-gst-workshop
 
 Half-day hands-on workshop: **GST Analytics & AI on Snowflake for Global Solution Integrators**.
-Built for a tax practice at a GSI — strong SQL/Excel/Alteryx skills, new to Snowflake. Vendor-neutral
-throughout ("your firm", "the tax practice", "your client").
+Built for a tax practice at a GSI — strong SQL/Excel/Alteryx skills, new to Snowflake. Your firm is
+never named; participants are the tax transformation consultants on the engagement.
 
-**The premise.** An Australian group runs three general ledgers after a decade of acquisitions. The tax
-team rebuilds the group GST position in Excel every month, cannot reconcile it to what was lodged, and
-cannot reproduce a prior filing when the ATO asks. Two labs fix that end to end.
+**The premise.** **Brindabella Group**, an Australian group, runs three general ledgers after a decade
+of acquisitions. Their tax team rebuilds the group GST position in Excel every month, cannot reconcile
+it to what was lodged, and cannot reproduce a prior filing when the ATO asks. Your firm has been
+engaged to fix that end to end, across two labs.
 
-## What participants run
+## Start here
+
+Everything a participant needs is in **[`GSI_TAX_WorkshopMaterial/`](GSI_TAX_WorkshopMaterial)** and
+nothing else. Open `gsi_tax_workshop_index.html` in that folder first. The rest of this repository is
+source and build tooling — you do not need to read it to run the workshop.
 
 The **notebooks are the primary surface** — every cell is ready to run, nothing to copy or paste.
 
@@ -26,16 +31,31 @@ The three `gsi_tax_workshop_*.html` files are the matching read-along guides —
 results and architecture notes. Keep the guide open beside the notebook; the notebook cross-links to it
 per step, which is why the guides sit alongside the notebooks rather than in a subfolder.
 
-Start at `gsi_tax_workshop_index.html`. `v1_guide/` is the superseded first-generation guide, kept
-for reference only — nothing in it is current.
+Two more files are in there for the participant: `gsi_tax_rule_update.csv`, which they upload by hand
+in Lab 1 step 7, and `gst_control_tower.py`, the Streamlit app they paste into Projects → Streamlit in
+step 6.
+
+## Repository layout
+
+```
+GSI_TAX_WorkshopMaterial/   attendee-facing. All generated, plus the one CSV they upload.
+sql/                        source. Schema and deterministic data generation.
+apps/                       source of the Streamlit app.
+_build/                     step fragments, assemblers, CSS/JS.
+_archive/                   superseded material. Not built, not shipped.
+_WORKSHOP_SPEC.md           the design contract.
+```
+
+Nothing generated is ever written to the repository root — all output paths resolve through `DIST` in
+the build scripts.
 
 ## The Streamlit app
 
 `apps/gst_control_tower.py` is the GST control tower from Lab 1 step 6: a single-file dark dashboard
 (live KPI tiles, BAS reconciliation panel, risk distribution, entity heatmap, filterable worklist)
 that a participant pastes straight into Projects → Streamlit. It is a real file so it can be
-compiled, run locally against an account and `PUT` to a stage — the copies in the guide and the
-notebook are **generated from it** by `build.py`, so they cannot drift.
+compiled, run locally against an account and `PUT` to a stage — the copies in the guide, the notebook
+and `GSI_TAX_WorkshopMaterial/` are all **generated from it** by `build.py`, so they cannot drift.
 
 Everything is drawn with CSS grid and inline SVG rather than a plotting library: `matplotlib` is not
 in the Streamlit in Snowflake warehouse runtime, and anything depending on it — including pandas'
@@ -99,9 +119,13 @@ python3 _build/run_notebook.py lab2
 python3 _build/run_notebook.py reset
 ```
 
-Three things are generated and must never be hand-edited: the `gsi_tax_*.ipynb` notebooks, the
-`gsi_tax_workshop_*.html` guides, and `sql/06_lab2_ai_objects.sql`. Their sources are the
-`_build/*_step*.html` fragments, `sql/01..03`, and `apps/*.py`.
+Everything in `GSI_TAX_WorkshopMaterial/` is generated and must never be hand-edited — the
+`gsi_tax_*.ipynb` notebooks, the `gsi_tax_workshop_*.html` guides and the `gst_control_tower.py` copy
+— along with `sql/06_lab2_ai_objects.sql`. Their sources are the `_build/*_step*.html` fragments,
+`sql/01..03`, and `apps/*.py`.
+
+The one exception is `GSI_TAX_WorkshopMaterial/gsi_tax_workshop_index.html`, which is hand-authored
+and therefore outside the parity check. Edit it directly.
 
 `build.py` fails if the SQL in the finished guide differs from the SQL in the finished notebook, if a
 step exceeds its code-block budget, if HTML entities are unescaped, or if a superseded figure
@@ -112,6 +136,6 @@ Expected gate results: setup **4 pass**, Lab 1 **40 pass / 2 fail-as-designed / 
 assert headlessly — `build.py` compiles the app file instead) and the Lab 2 cleanup, which drops the
 workshop and so is only ever run deliberately.
 
-`_WORKSHOP_SPEC.md` is the design contract, including the measured figures and the per-step query
-budget. `TAX_HOL_BLUEPRINT.md` is the condensed version — enough to regenerate a workshop of this
-shape from scratch.
+`_WORKSHOP_SPEC.md` is the design contract, including the repository layout, the measured figures and
+the per-step query budget. `_archive/TAX_HOL_BLUEPRINT.md` is the condensed version — enough to
+regenerate a workshop of this shape from scratch.

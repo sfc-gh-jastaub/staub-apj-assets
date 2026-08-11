@@ -25,6 +25,7 @@ from assemble import CFG
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 BUILD = ROOT / "_build"
+DIST = ROOT / "GSI_TAX_WorkshopMaterial"
 
 NB_OUT = {
     "setup": "gsi_tax_lab0_setup.ipynb",
@@ -308,7 +309,7 @@ def build(lab, mode="auto"):
         "nbformat": 4,
         "nbformat_minor": 5,
     }
-    out = ROOT / NB_OUT[lab]
+    out = DIST / NB_OUT[lab]
     out.write_text(json.dumps(nb, indent=1, ensure_ascii=False) + "\n")
 
     n_md = sum(1 for c in cells if c["cell_type"] == "markdown")

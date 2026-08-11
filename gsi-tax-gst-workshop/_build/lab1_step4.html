@@ -16,7 +16,7 @@ tax team can read, review and change themselves.</p>
 
 <h3>The rules, as data</h3>
 
-<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- The decision table. NULL means "matches anything". Lower PRIORITY wins.
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- 1. The decision table. NULL means "matches anything". Lower PRIORITY wins.
 SELECT RULE_ID, PRIORITY, JURISDICTION, SUPPLY_CATEGORY,
        SUPPLIER_GST_REGISTERED, IS_CROSS_BORDER,
        TAX_TREATMENT, RECOVERABLE,
@@ -24,10 +24,12 @@ SELECT RULE_ID, PRIORITY, JURISDICTION, SUPPLY_CATEGORY,
 FROM TAX.TAX_RULE_DETERMINATION
 ORDER BY PRIORITY, RULE_ID;
 
--- The rate table. Keyed on jurisdiction, treatment and date.
+-- 2. The rate table. Keyed on jurisdiction, treatment and date.
 SELECT RATE_ID, JURISDICTION, TAX_TREATMENT, RATE_PCT, VALID_FROM, VALID_TO
 FROM TAX.TAX_RULE_RATE
 ORDER BY JURISDICTION, VALID_FROM, TAX_TREATMENT;</code></pre></div>
+
+<p>Both grids matter here, so run the two statements separately rather than the block in one go.</p>
 
 <div class="beat" data-beat="prove">
 <p><strong>A tax person can read those two grids and understand the whole determination logic without
@@ -206,8 +208,9 @@ thing standing between you and restating three years of lodged BAS by accident.<
 
 <h3>Change one row and watch the position move</h3>
 
-<p>So what happens when Brindabella's tax team wants a change? Do it and see. Run all three statements in
-order.</p>
+<p>So what happens when Brindabella's tax team wants a change? Do it and see. Run the three statements
+in order, one at a time &mdash; statement 2 is the one whose result you need to read, and it is not the
+last statement in the block.</p>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- 1. Brindabella's tax team wants to model the reverse charge at a different rate.
 --    They change one row of data. Not a query. Not a deployment.
@@ -312,7 +315,10 @@ ORDER BY RISK_SCORE DESC
 LIMIT 50;</code></pre></div>
 
 <p>That is a standing exception register: seven tax tests over the whole ledger, always current,
-always sorted worst-first.</p>
+always sorted worst-first. What comes back on screen is the fifty worst individual ledger lines, one
+row each, with the codes they failed in <code>EXCEPTION_CODES</code>. Across the whole register the
+seven tests break down like this &mdash; a summary of what you have just created, not the result of
+that query:</p>
 
 <table class="data-table">
     <thead>

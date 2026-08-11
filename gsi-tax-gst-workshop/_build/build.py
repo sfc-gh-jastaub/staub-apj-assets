@@ -36,6 +36,7 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 BUILD = ROOT / "_build"
+DIST = ROOT / "GSI_TAX_WorkshopMaterial"
 sys.path.insert(0, str(BUILD))
 
 SETUP_SQL = ["01_setup_raw.sql", "02_setup_erp.sql", "03_setup_rules_bas_docs.sql"]
@@ -114,6 +115,23 @@ def sync_app_block():
         frag_path.write_text(frag[:m.start(2)] + esc + frag[m.end(2):])
         changed.append(f"{frag_name} <- {app_rel}")
     return changed
+
+
+def publish_app_files():
+    """Copy each app into the attendee folder so the .py is there to open.
+
+    The file under apps/ stays the single source of truth: it feeds the fragment
+    in sync_app_block and it is what gets compile-checked. This is a generated
+    copy, which is why it is never edited in place.
+    """
+    published = []
+    for app_rel in APP_BLOCK.values():
+        src = ROOT / app_rel
+        dst = DIST / pathlib.Path(app_rel).name
+        if not dst.exists() or dst.read_text() != src.read_text():
+            dst.write_text(src.read_text())
+            published.append(dst.name)
+    return published
 
 
 def check_apps_compile():
@@ -223,9 +241,9 @@ def nb_sql_by_step(path):
 
 
 def check_parity(lab, cfg):
-    h = html_sql_by_step(ROOT / cfg["out"], len(cfg["build"]))
+    h = html_sql_by_step(DIST / cfg["out"], len(cfg["build"]))
     nbmap = {"lab1": "gsi_tax_lab1_foundation.ipynb", "lab2": "gsi_tax_lab2_cortex_ai.ipynb"}
-    n = nb_sql_by_step(ROOT / nbmap[lab])
+    n = nb_sql_by_step(DIST / nbmap[lab])
     problems = []
     for step in sorted(h):
         a = norm(" ".join(h[step]))
@@ -250,7 +268,7 @@ def check_staleness():
     stale = []
     for out in ["gsi_tax_workshop_lab1_foundation.html", "gsi_tax_workshop_lab2_cortex_ai.html",
                 "gsi_tax_lab1_foundation.ipynb", "gsi_tax_lab2_cortex_ai.ipynb"]:
-        p = ROOT / out
+        p = DIST / out
         if not p.exists() or p.stat().st_mtime < newest - 1:
             stale.append(out)
     return stale
@@ -293,7 +311,7 @@ ARTEFACTS = [
 def find_retired():
     hits = []
     for name in ARTEFACTS:
-        path = ROOT / name
+        path = DIST / name
         if not path.exists():
             continue
         text = path.read_text()
@@ -365,6 +383,13 @@ def main():
     if not app_changed:
         print("         already current")
 
+    print("stage 1c apps/*.py -> GSI_TAX_WorkshopMaterial/")
+    published = publish_app_files()
+    for name in published:
+        print("         " + name)
+    if not published:
+        print("         already current")
+
     import assemble
     import importlib
     importlib.reload(assemble)
@@ -396,7 +421,7 @@ def main():
     # per-step block budgets and escaping, on the finished HTML
     for lab in ("lab1", "lab2"):
         cfg = assemble.CFG[lab]
-        doc = (ROOT / cfg["out"]).read_text()
+        doc = (DIST / cfg["out"]).read_text()
         per = []
         for i in range(1, len(cfg["build"]) + 1):
             m = re.search(r'id="step-%d">(.*?)(?=<div class="step-card|</main>)' % i, doc, re.S)

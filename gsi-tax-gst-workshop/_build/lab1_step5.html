@@ -176,18 +176,20 @@ permission. You added eighteen characters to a query you already had.</p>
 to next month, so freeze it: a clone of the ledger as it stood before the adjustment, named for the
 date it was taken, in a schema that exists for exactly this purpose.</p>
 
-<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- An immutable, named snapshot of the whole 2,400,000-line ledger
--- as it stood at the moment before the adjustment was posted.
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- 1. An immutable, named snapshot of the whole 2,400,000-line ledger
+--    as it stood at the moment before the adjustment was posted.
 CREATE OR REPLACE TABLE AUDIT.GL_AS_LODGED_20260803 CLONE CURATED.GL_HARMONISED AT(TIMESTAMP =&gt; $pre_adjustment);
 
+-- 2. Count it.
 SELECT COUNT(*) AS SNAPSHOT_LINES FROM AUDIT.GL_AS_LODGED_20260803;
 
--- Now the accident everybody has had. Wrong window, wrong object.
+-- 3. Now the accident everybody has had. Wrong window, wrong object.
 DROP TABLE AUDIT.GL_AS_LODGED_20260803;
 
--- And the recovery. Within the retention window, one word.
+-- 4. And the recovery. Within the retention window, one word.
 UNDROP TABLE AUDIT.GL_AS_LODGED_20260803;
 
+-- 5. Count it again.
 SELECT COUNT(*) AS STILL_HERE FROM AUDIT.GL_AS_LODGED_20260803;</code></pre></div>
 
 <div class="info-box success"><span class="icon">⚡</span><div><strong>Zero-copy cloning — what just happened, and what it cost</strong><p>You took an immutable snapshot of a <strong>2,400,000-row ledger</strong>. It completed instantly

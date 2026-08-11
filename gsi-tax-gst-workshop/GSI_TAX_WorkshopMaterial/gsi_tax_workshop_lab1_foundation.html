@@ -1005,6 +1005,14 @@ position is. Before you can even attempt that, you need to see what the three sy
 &mdash; because they do not describe the business the same way.</p>
 </div>
 
+<div class="info-box" data-surface="guide"><span class="icon">&#128161;</span><div><strong>Before your first block: how to run one that has numbered statements</strong><p>Some blocks in this lab contain more than one statement, numbered <code>-- 1.</code>,
+<code>-- 2.</code> and so on in the comments. A worksheet renders only the result of the
+<em>last</em> statement it ran, so running such a block in one go hides the results the step is
+asking you to look at. Run those statements one at a time: put the cursor inside a statement and
+press <code>Cmd</code>+<code>Enter</code> (<code>Ctrl</code>+<code>Enter</code> on Windows), or select
+just that statement before you run. Blocks with a single statement, and blocks where only the final
+result matters, are unaffected.</p></div></div>
+
 <p>First confirm the setup notebook has run and left you a complete foundation.</p>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- Point the session at the workshop, then confirm the foundation is complete.
@@ -1209,10 +1217,11 @@ UNION ALL
 SELECT txn_dt, amt_incl_tax, tax_flag
 FROM RAW_DATA.ERP_LEGACY_AP;
 
--- Numeric value 'S0' is not recognized</code></pre></div>
+-- Numeric value 'S1' is not recognized</code></pre></div>
 
-<p>It fails. <code>Numeric value 'S0' is not recognized</code>. There is no way to line these three
-extracts up by position, and there are four separate reasons why.</p>
+<p>It fails. <code>Numeric value 'S1' is not recognized</code> &mdash; <code>S1</code> being a SAP tax
+code that Snowflake has been asked to add up as a number. There is no way to line these three extracts
+up by position, and there are four separate reasons why.</p>
 
 <ul class="learning-list">
 <li><strong>Date types.</strong> One column is a real <code>DATE</code>; the other two are text in
@@ -1649,7 +1658,7 @@ tax team can read, review and change themselves.</p>
 
 <h3>The rules, as data</h3>
 
-<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- The decision table. NULL means "matches anything". Lower PRIORITY wins.
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- 1. The decision table. NULL means "matches anything". Lower PRIORITY wins.
 SELECT RULE_ID, PRIORITY, JURISDICTION, SUPPLY_CATEGORY,
        SUPPLIER_GST_REGISTERED, IS_CROSS_BORDER,
        TAX_TREATMENT, RECOVERABLE,
@@ -1657,10 +1666,12 @@ SELECT RULE_ID, PRIORITY, JURISDICTION, SUPPLY_CATEGORY,
 FROM TAX.TAX_RULE_DETERMINATION
 ORDER BY PRIORITY, RULE_ID;
 
--- The rate table. Keyed on jurisdiction, treatment and date.
+-- 2. The rate table. Keyed on jurisdiction, treatment and date.
 SELECT RATE_ID, JURISDICTION, TAX_TREATMENT, RATE_PCT, VALID_FROM, VALID_TO
 FROM TAX.TAX_RULE_RATE
 ORDER BY JURISDICTION, VALID_FROM, TAX_TREATMENT;</code></pre></div>
+
+<p>Both grids matter here, so run the two statements separately rather than the block in one go.</p>
 
 <div class="beat" data-beat="prove">
 <p><strong>A tax person can read those two grids and understand the whole determination logic without
@@ -1839,8 +1850,9 @@ thing standing between you and restating three years of lodged BAS by accident.<
 
 <h3>Change one row and watch the position move</h3>
 
-<p>So what happens when Brindabella's tax team wants a change? Do it and see. Run all three statements in
-order.</p>
+<p>So what happens when Brindabella's tax team wants a change? Do it and see. Run the three statements
+in order, one at a time &mdash; statement 2 is the one whose result you need to read, and it is not the
+last statement in the block.</p>
 
 <div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- 1. Brindabella's tax team wants to model the reverse charge at a different rate.
 --    They change one row of data. Not a query. Not a deployment.
@@ -1945,7 +1957,10 @@ ORDER BY RISK_SCORE DESC
 LIMIT 50;</code></pre></div>
 
 <p>That is a standing exception register: seven tax tests over the whole ledger, always current,
-always sorted worst-first.</p>
+always sorted worst-first. What comes back on screen is the fifty worst individual ledger lines, one
+row each, with the codes they failed in <code>EXCEPTION_CODES</code>. Across the whole register the
+seven tests break down like this &mdash; a summary of what you have just created, not the result of
+that query:</p>
 
 <table class="data-table">
     <thead>
@@ -2232,18 +2247,20 @@ permission. You added eighteen characters to a query you already had.</p>
 to next month, so freeze it: a clone of the ledger as it stood before the adjustment, named for the
 date it was taken, in a schema that exists for exactly this purpose.</p>
 
-<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- An immutable, named snapshot of the whole 2,400,000-line ledger
--- as it stood at the moment before the adjustment was posted.
+<div class="code-block"><div class="code-header"><span class="code-lang">sql</span><button class="btn-copy" onclick="copyCode(this)">Copy</button></div><pre><code>-- 1. An immutable, named snapshot of the whole 2,400,000-line ledger
+--    as it stood at the moment before the adjustment was posted.
 CREATE OR REPLACE TABLE AUDIT.GL_AS_LODGED_20260803 CLONE CURATED.GL_HARMONISED AT(TIMESTAMP =&gt; $pre_adjustment);
 
+-- 2. Count it.
 SELECT COUNT(*) AS SNAPSHOT_LINES FROM AUDIT.GL_AS_LODGED_20260803;
 
--- Now the accident everybody has had. Wrong window, wrong object.
+-- 3. Now the accident everybody has had. Wrong window, wrong object.
 DROP TABLE AUDIT.GL_AS_LODGED_20260803;
 
--- And the recovery. Within the retention window, one word.
+-- 4. And the recovery. Within the retention window, one word.
 UNDROP TABLE AUDIT.GL_AS_LODGED_20260803;
 
+-- 5. Count it again.
 SELECT COUNT(*) AS STILL_HERE FROM AUDIT.GL_AS_LODGED_20260803;</code></pre></div>
 
 <div class="info-box success"><span class="icon">⚡</span><div><strong>Zero-copy cloning — what just happened, and what it cost</strong><p>You took an immutable snapshot of a <strong>2,400,000-row ledger</strong>. It completed instantly
@@ -3062,7 +3079,7 @@ the group position <em>before</em> it happens.</p>
 
 <h3>Upload the spreadsheet</h3>
 
-<p>No code for this part. The file is <code>assets/gsi_tax_rule_update.csv</code> from the workshop
+<p>No code for this part. The file is <code>gsi_tax_rule_update.csv</code> from the workshop
 bundle — three determination rows, two of them with a <code>VALID_FROM</code> in the next quarter.</p>
 
 <ol>

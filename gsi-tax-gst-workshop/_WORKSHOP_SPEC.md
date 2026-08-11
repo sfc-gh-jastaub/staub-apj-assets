@@ -24,21 +24,54 @@ names, row counts, or column names. Everything you need is here.
 | With optionals | ~88 min (Lab 1) + ~94 min (Lab 2) = ~182 min |
 | Cortex model | `claude-sonnet-4-6` |
 | localStorage key | `workshop_gsi_tax_lab{N}_progress` |
-| Output directory | `~/Documents/COCO/HOL/gsi_tax/` |
+| Output directory | `~/Documents/COCO/HOL/gsi_tax/GSI_TAX_WorkshopMaterial/` |
 | Footer | `© 2026 Snowflake Inc. All Rights Reserved.` |
 
-### Files to produce
+
+### Repository layout — BINDING
+
+`GSI_TAX_WorkshopMaterial/` is the only folder an attendee opens. It contains
+**nothing but build output** plus the one file they upload by hand. Everything
+else in the repo is source or internal.
 
 ```
 ~/Documents/COCO/HOL/gsi_tax/
-├── gsi_tax_workshop_index.html
-├── gsi_tax_workshop_lab1_foundation.html
-├── gsi_tax_workshop_lab2_cortex_ai.html
-├── gsi_tax_lab1_foundation.ipynb        ← notebook: execution surface
-├── gsi_tax_lab2_cortex_ai.ipynb         ← notebook: execution surface
-└── assets/
-    └── gsi_tax_rule_update.csv         ← for Lab 1 Optional O2
+├── GSI_TAX_WorkshopMaterial/            ← attendee-facing. ALL generated.
+│   ├── gsi_tax_workshop_index.html      ← entry point (hand-authored, see below)
+│   ├── gsi_tax_workshop_lab1_foundation.html
+│   ├── gsi_tax_workshop_lab2_cortex_ai.html
+│   ├── gsi_tax_lab0_setup.ipynb
+│   ├── gsi_tax_lab1_foundation.ipynb
+│   ├── gsi_tax_lab2_cortex_ai.ipynb
+│   ├── gsi_tax_reset.ipynb
+│   ├── gst_control_tower.py             ← copy published by stage 1c
+│   └── gsi_tax_rule_update.csv          ← attendees upload this in Lab 1 Step 7
+├── sql/                                 ← SOURCE. Stage 1 reads, stage 1b writes 06.
+├── apps/gst_control_tower.py            ← SOURCE of the app. Never edit the copy.
+├── _build/                              ← fragments, assemblers, CSS/JS
+├── _archive/                            ← superseded material, not built, not shipped
+└── _WORKSHOP_SPEC.md                    ← this file
 ```
+
+**Three rules that follow from this.**
+
+1. **Never write a generated artefact to the repo root.** All four output paths
+   resolve through `DIST` (defined in `assemble.py`, `assemble_nb.py`, `build.py`
+   and `run_notebook.py`). `CFG["out"]` and `NB_OUT` stay **bare filenames** —
+   the guides cross-link each other and the notebooks link the guides relatively,
+   so only the filesystem join carries the prefix.
+2. **`sql/` and `apps/` are inputs, not artefacts.** Moving either out of the root
+   breaks stage 1 / 1a immediately. `apps/gst_control_tower.py` is the single
+   source of truth: stage 1a syncs it into the Lab 1 Step 6 fragment, stage 1c
+   copies it into the attendee folder, and `check_apps_compile` compile-checks it.
+3. **Participant-facing paths must be relative to the attendee folder.** Lab 1
+   Step 7 names `gsi_tax_rule_update.csv` with no directory prefix, because that
+   is what the attendee sees.
+
+**`gsi_tax_workshop_index.html` is the one exception** — it is hand-authored and
+lives inside the attendee folder rather than being generated into it, so the
+parity check does not cover it. Edit it directly. This has already caused drift
+twice; bringing it into the fragment pattern is outstanding work.
 
 ### Two delivery surfaces — HTML narrates, notebook executes
 
@@ -68,6 +101,11 @@ python3 _build/assemble_nb.py all                                   # notebooks
    `USE`-plus-verify blocks stay in a single cell — a SQL cell renders only its *last* result, which
    is correct for those and wrong for anything where an intermediate result is the teaching point.
    Lab 1 Step 3 Block 1 (`TO_DATE` fails, `TRY_TO_DATE` survives) is the canonical must-split.
+   **Every block listed in `SPLIT` must number its statements `-- 1.`, `-- 2.` … in the fragment.**
+   The notebook gets separate cells; the guide reader does not, and a guide reader who runs the whole
+   block sees only the last result. The numbering is what the Step 1 guide-only callout tells them to
+   run one at a time, so an unnumbered `SPLIT` block silently loses a teaching point on the guide
+   surface. Do **not** solve this by splitting the guide block — that spends query budget (§0.1).
 4. **Step 1's setup script stays one cell.** All 27 statements, one run, ~65s. Its final statement is
    the verification `SELECT`, so the row-count proof is what renders.
 5. **Streamlit blocks are stripped of `st.set_page_config`** by `prep_python` — it raises inside a

@@ -29,6 +29,7 @@ import io
 import snowflake.connector
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
+DIST = ROOT / "GSI_TAX_WorkshopMaterial"
 CONN = "staub_uswest_primary_pat"
 NB = {
     "setup": "gsi_tax_lab0_setup.ipynb",
@@ -93,7 +94,7 @@ CORTEX = re.compile(r"AI_COMPLETE|AI_CLASSIFY|EXTRACT_ANSWER|AI_SENTIMENT|SUMMAR
 
 
 def cells(lab):
-    nb = json.loads((ROOT / NB[lab]).read_text())
+    nb = json.loads((DIST / NB[lab]).read_text())
     out = []
     for c in nb["cells"]:
         if c["cell_type"] != "code":

@@ -66,10 +66,11 @@ UNION ALL
 SELECT txn_dt, amt_incl_tax, tax_flag
 FROM RAW_DATA.ERP_LEGACY_AP;
 
--- Numeric value 'S0' is not recognized</code></pre></div>
+-- Numeric value 'S1' is not recognized</code></pre></div>
 
-<p>It fails. <code>Numeric value 'S0' is not recognized</code>. There is no way to line these three
-extracts up by position, and there are four separate reasons why.</p>
+<p>It fails. <code>Numeric value 'S1' is not recognized</code> &mdash; <code>S1</code> being a SAP tax
+code that Snowflake has been asked to add up as a number. There is no way to line these three extracts
+up by position, and there are four separate reasons why.</p>
 
 <ul class="learning-list">
 <li><strong>Date types.</strong> One column is a real <code>DATE</code>; the other two are text in

@@ -13,6 +13,10 @@ import re, sys, json, pathlib
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 BUILD = ROOT / "_build"
+# Everything an attendee needs, and nothing else. Values in CFG["out"] and
+# NB_OUT stay bare filenames because the guides cross-link each other and the
+# notebooks link the guides relatively - only the filesystem join is prefixed.
+DIST = ROOT / "GSI_TAX_WorkshopMaterial"
 TEMPLATE = pathlib.Path.home() / "Documents/COCO/HOL/fsi_generic/fsi_workshop_lab1_foundation.html"
 
 CFG = {
@@ -307,7 +311,7 @@ def assemble(lab):
     const pct = Math.round((coreDone / coreSteps) * 100);""")
 
     html = head + body + "\n<script>" + js + "</script>\n\n</body>\n</html>\n"
-    (ROOT / cfg["out"]).write_text(html)
+    (DIST / cfg["out"]).write_text(html)
     return cfg["out"], html.count("\n"), html.count('class="code-block"')
 
 
