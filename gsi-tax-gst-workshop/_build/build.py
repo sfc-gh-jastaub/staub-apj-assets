@@ -95,6 +95,10 @@ def sync_setup_block():
 # ---------------------------------------------------------------------------
 APP_BLOCK = {"lab1_step6.html": "apps/gst_control_tower.py"}
 
+# Where each app is published for deployment, relative to DIST. Named
+# streamlit_app.py there because that is the main_file the manifest declares.
+APP_DIST_DIR = {"apps/gst_control_tower.py": "streamlit_app"}
+
 PY_BLOCK_RE = re.compile(
     r'(<span class="code-lang">python</span>.*?<pre><code>)(.*?)(</code></pre>)', re.S)
 
@@ -118,20 +122,47 @@ def sync_app_block():
 
 
 def publish_app_files():
-    """Copy each app into the attendee folder so the .py is there to open.
+    """Copy each app into its deployable folder under the attendee folder.
 
     The file under apps/ stays the single source of truth: it feeds the fragment
     in sync_app_block and it is what gets compile-checked. This is a generated
     copy, which is why it is never edited in place.
+
+    It lands as streamlit_app.py beside a committed snowflake.yml, pyproject.toml
+    and .streamlit/config.toml, so a fresh clone deploys with no file creation.
+    The app folder is a leaf on purpose - a Streamlit app must not sit under
+    another app root, so nothing above it may hold a snowflake.yml.
     """
     published = []
     for app_rel in APP_BLOCK.values():
         src = ROOT / app_rel
-        dst = DIST / pathlib.Path(app_rel).name
+        dst = DIST / APP_DIST_DIR[app_rel] / "streamlit_app.py"
+        dst.parent.mkdir(parents=True, exist_ok=True)
         if not dst.exists() or dst.read_text() != src.read_text():
             dst.write_text(src.read_text())
-            published.append(dst.name)
+            published.append(str(dst.relative_to(DIST)))
     return published
+
+
+def check_app_config():
+    """Every deploy needs its config committed, not generated at first Run.
+
+    Workspaces will happily invent snowflake.yml, pyproject.toml and
+    .streamlit/config.toml on first Run, picking up whatever role, warehouse and
+    database the session holds. That is how the app came to look for
+    USER$<you>.TAX. If these are absent from the repo the deploy is not
+    reproducible, so their absence is a build failure.
+    """
+    required = ["snowflake.yml", "pyproject.toml", ".streamlit/config.toml"]
+    problems = []
+    for app_dir in APP_DIST_DIR.values():
+        for rel in required:
+            p = DIST / app_dir / rel
+            if not p.exists():
+                problems.append(f"{app_dir}/{rel} is missing - deploy is not reproducible")
+            elif "<" in p.read_text() and ">" in p.read_text():
+                problems.append(f"{app_dir}/{rel} still contains a <placeholder>")
+    return problems
 
 
 def check_apps_compile():
@@ -463,6 +494,12 @@ def main():
         failures.extend(bad_py)
     else:
         print(f"         {len(APP_BLOCK)} app file(s) compile")
+
+    bad_cfg = check_app_config()
+    if bad_cfg:
+        failures.extend(bad_cfg)
+    else:
+        print(f"         {len(APP_DIST_DIR)} app deploy config(s) complete")
 
     stale = check_staleness()
     if stale:

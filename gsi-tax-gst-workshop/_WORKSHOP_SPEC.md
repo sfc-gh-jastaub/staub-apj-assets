@@ -44,8 +44,12 @@ else in the repo is source or internal.
 │   ├── gsi_tax_lab1_foundation.ipynb
 │   ├── gsi_tax_lab2_cortex_ai.ipynb
 │   ├── gsi_tax_reset.ipynb
-│   ├── gst_control_tower.py             ← copy published by stage 1c
-│   └── gsi_tax_rule_update.csv          ← attendees upload this in Lab 1 Step 7
+│   ├── gsi_tax_rule_update.csv          ← attendees upload this in Lab 1 Step 7
+│   └── streamlit_app/                   ← deployable app. MUST stay a leaf.
+│       ├── streamlit_app.py             ← published by stage 1c from apps/
+│       ├── snowflake.yml                ← committed, hand-authored
+│       ├── pyproject.toml               ← committed, must stay at defaults
+│       └── .streamlit/config.toml       ← committed, exact path required
 ├── sql/                                 ← SOURCE. Stage 1 reads, stage 1b writes 06.
 ├── apps/gst_control_tower.py            ← SOURCE of the app. Never edit the copy.
 ├── _build/                              ← fragments, assemblers, CSS/JS
@@ -67,6 +71,30 @@ else in the repo is source or internal.
 3. **Participant-facing paths must be relative to the attendee folder.** Lab 1
    Step 7 names `gsi_tax_rule_update.csv` with no directory prefix, because that
    is what the attendee sees.
+4. **The app folder is a leaf and its config is committed.** A Streamlit app must
+   not sit under another app root, so nothing above `streamlit_app/` may hold a
+   `snowflake.yml`. Its three config files are hand-authored and tracked, never
+   generated at first Run — Workspaces will otherwise invent them from whatever
+   role, warehouse and database the session holds, which is how the app came to
+   query `USER$<you>.TAX`. `check_app_config` fails the build if one is missing
+   or still carries a `<placeholder>`. `pyproject.toml` stays at defaults: adding
+   a dependency triggers a PyPI fetch and therefore an external access
+   integration.
+
+**Every object reference in app code is a three-part name.** `GSI_TAX_WORKSHOP.TAX.X`,
+never `TAX.X`. A two-part name resolves against the session's current database,
+which for a deployed app is not this one. A `USE SCHEMA` at startup is not an
+acceptable substitute — it relocates the hidden dependency rather than removing it.
+
+**The session bootstrap differs by surface and the build owns the difference.**
+`apps/*.py` holds the deployable form, `st.connection("snowflake")`, which is the
+supported pattern and works on both warehouse and container runtimes.
+`get_active_session()` is warehouse-runtime only and is not thread-safe, but it is
+the only pattern available in a notebook cell, so `prep_python` rewrites the two
+bootstrap lines for the notebook alongside stripping `st.set_page_config`. The
+rewrite is asserted: reword those lines in `apps/*.py` and the build fails rather
+than emit a cell that cannot acquire a session. Blocks with no `st.connection` are
+left alone, which is why Lab 2 Step 8's own app is unaffected.
 
 **`gsi_tax_workshop_index.html` is the one exception** — it is hand-authored and
 lives inside the attendee folder rather than being generated into it, so the

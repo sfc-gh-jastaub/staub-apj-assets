@@ -204,17 +204,48 @@ def statements_for(lab, step, block_no, code):
 def prep_python(code):
     """Adapt Streamlit-in-Snowflake app code so it also runs inside a notebook cell.
 
+    Two rewrites, both one-directional:
+
     st.set_page_config() is required for a standalone SiS app but raises inside a
-    notebook, so it is stripped here. The HTML guide keeps the canonical app code
-    for anyone deploying it to Projects -> Streamlit.
+    notebook, so it is stripped.
+
+    st.connection("snowflake") is the supported session pattern for a deployed
+    app and does not work in a notebook cell, where get_active_session() is the
+    only pattern available. The source file therefore holds the deployable form
+    and the notebook form is generated here. Only blocks that actually use
+    st.connection are rewritten - Lab 2 Step 8 carries its own app that already
+    uses get_active_session and is left alone. Where the bootstrap IS present the
+    rewrite must succeed, so rewording it in apps/*.py fails the build loudly
+    rather than silently emitting a cell that cannot acquire a session.
     """
     stripped = re.sub(r"^st\.set_page_config\([^)]*\)\s*\n", "", code, flags=re.M)
+    if "st.set_page_config" in stripped:
+        raise SystemExit("prep_python: st.set_page_config survived the strip")
+
+    note_deploy = ""
+    if "st.connection(" in stripped:
+        stripped, n = re.subn(
+            r"^conn = st\.connection\([^\n]*\)\nsession = conn\.session\(\)$",
+            "from snowflake.snowpark.context import get_active_session\n"
+            "session = get_active_session()",
+            stripped,
+            flags=re.M,
+        )
+        if n != 1:
+            raise SystemExit(
+                "prep_python: could not find the st.connection bootstrap to rewrite "
+                "for the notebook - check the session lines in apps/*.py"
+            )
+        note_deploy = (
+            "# Deploy the real thing from GSI_TAX_WorkshopMaterial/streamlit_app/ -\n"
+            "# open streamlit_app.py and Run. This cell is the same code adapted for a\n"
+            "# notebook: st.set_page_config removed, session from get_active_session().\n"
+        )
+
     note = (
-        "# The control tower app. This is the file to paste into Projects -> Streamlit\n"
-        "# (add st.set_page_config back at the top when you do). Running the cell here\n"
-        "# renders the dashboard inline, but its theme assumes a full page, so the\n"
-        "# deployed app is the one to look at.\n"
-    )
+        "# The control tower app. Running the cell here renders the dashboard inline,\n"
+        "# but the theme assumes a full page, so the deployed app is the one to look at.\n"
+    ) + note_deploy
     return note + stripped
 
 

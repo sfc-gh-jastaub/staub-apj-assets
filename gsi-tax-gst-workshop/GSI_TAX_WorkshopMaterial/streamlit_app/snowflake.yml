@@ -1,0 +1,20 @@
+# Deploy config for the GST Control Tower (Lab 1 Step 6).
+#
+# Paths are relative to this file, not to the repository root. artifacts must be
+# exhaustive - a file not listed here is not deployed, and .streamlit/config.toml
+# only takes effect at exactly that path.
+#
+# Deliberately absent:
+#   identifier   - the workspace supplies database and schema
+#   compute_pool - pool names are account-specific; App Settings supplies it
+#   runtime_name, external_access_integrations - not needed for this app
+definition_version: 2
+entities:
+  streamlit_app:
+    type: streamlit
+    main_file: streamlit_app.py
+    query_warehouse: GSI_TAX_WH
+    artifacts:
+      - streamlit_app.py
+      - pyproject.toml
+      - .streamlit/config.toml

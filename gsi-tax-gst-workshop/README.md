@@ -38,7 +38,8 @@ step 6.
 ## Repository layout
 
 ```
-GSI_TAX_WorkshopMaterial/   attendee-facing. All generated, plus the one CSV they upload.
+GSI_TAX_WorkshopMaterial/   attendee-facing. Generated, plus the CSV they upload.
+  streamlit_app/            deployable app root. Config committed, app generated.
 sql/                        source. Schema and deterministic data generation.
 apps/                       source of the Streamlit app.
 _build/                     step fragments, assemblers, CSS/JS.
@@ -52,10 +53,55 @@ the build scripts.
 ## The Streamlit app
 
 `apps/gst_control_tower.py` is the GST control tower from Lab 1 step 6: a single-file dark dashboard
-(live KPI tiles, BAS reconciliation panel, risk distribution, entity heatmap, filterable worklist)
-that a participant pastes straight into Projects → Streamlit. It is a real file so it can be
-compiled, run locally against an account and `PUT` to a stage — the copies in the guide, the notebook
-and `GSI_TAX_WorkshopMaterial/` are all **generated from it** by `build.py`, so they cannot drift.
+(live KPI tiles, BAS reconciliation panel, risk distribution, entity heatmap, filterable worklist).
+It is a real file so it can be compiled, run locally against an account and `PUT` to a stage — the
+copies in the guide, the notebook and `GSI_TAX_WorkshopMaterial/streamlit_app/` are all **generated
+from it** by `build.py`, so they cannot drift.
+
+### Deploying it
+
+`GSI_TAX_WorkshopMaterial/streamlit_app/` is a complete, committed app root. Open `streamlit_app.py`
+from there and click **Run** — a fresh clone deploys with **zero manual file creation**.
+
+Set this baseline in the session before deploying, so role and warehouse are not inherited from
+whatever the session happened to hold:
+
+```sql
+USE ROLE ACCOUNTADMIN;
+USE WAREHOUSE GSI_TAX_WH;
+```
+
+After the first deploy, set the warehouse to `GSI_TAX_WH` in **App Settings**.
+
+Two caveats to carry forward:
+
+- **`ACCOUNTADMIN` is a reproducible workshop baseline, not a production posture.** Anything promoted
+  beyond the lab should use a role holding only `USAGE` on `GSI_TAX_WORKSHOP` and its `TAX` and
+  `CURATED` schemas, plus `SELECT` on `V_GST_VS_BAS`, `V_GST_EXCEPTIONS` and `GL_HARMONISED`. Lab 0
+  builds everything as `SYSADMIN`, so `SYSADMIN` also works without extra grants.
+- **`GSI_TAX_WH` is SMALL and created by Lab 0.** An X-Small such as `COMPUTE_WH` will work but loads
+  noticeably slower against the 2.4M-row ledger.
+
+The folder carries its own `snowflake.yml`, `pyproject.toml` and `.streamlit/config.toml`, all
+tracked in git. This matters: Workspaces will otherwise generate them at first Run from the ambient
+session, which is how the app once ended up querying `USER$<you>.TAX`. `build.py` fails the build if
+any of the three is missing or still contains a `<placeholder>`. `pyproject.toml` must stay at its
+defaults — adding a dependency triggers a PyPI fetch and therefore an external access integration.
+Nothing above `streamlit_app/` may contain a `snowflake.yml`; an app root cannot nest inside another.
+
+### Two implementation rules the app follows
+
+**Every object is named in full.** `GSI_TAX_WORKSHOP.TAX.V_GST_EXCEPTIONS`, never
+`TAX.V_GST_EXCEPTIONS`. A two-part name resolves against the session's current database, which for a
+deployed app is not necessarily this one. A `USE SCHEMA` at startup is not a substitute — it moves the
+hidden dependency rather than removing it.
+
+**The session bootstrap differs by surface, and the build owns the difference.** The source file uses
+`st.connection("snowflake")`, which is supported on both warehouse and container runtimes.
+`get_active_session()` is warehouse-only and not thread-safe, but it is the only pattern available in
+a notebook cell, so `assemble_nb.prep_python` rewrites the bootstrap for the Lab 1 step 6 cell
+alongside stripping `st.set_page_config`. That rewrite is asserted — reword those lines and the build
+fails rather than ship a cell that cannot get a session.
 
 Everything is drawn with CSS grid and inline SVG rather than a plotting library: `matplotlib` is not
 in the Streamlit in Snowflake warehouse runtime, and anything depending on it — including pandas'

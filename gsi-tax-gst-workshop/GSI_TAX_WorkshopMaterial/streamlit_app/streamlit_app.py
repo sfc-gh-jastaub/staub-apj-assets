@@ -1,14 +1,19 @@
 import streamlit as st
 import bisect
 import html
+import os
 
 import pandas as pd
 from datetime import datetime, timezone
-from snowflake.snowpark.context import get_active_session
 
 st.set_page_config(page_title="Brindabella Group · GST Control Tower", layout="wide")
 
-session = get_active_session()
+# Session. A deployed app must not depend on whatever database the deploying
+# session happened to hold - that is how this app once went looking for
+# USER$<you>.TAX. The notebook surface needs the opposite pattern, so the build
+# rewrites these two lines for the Lab 1 Step 6 cell. Edit them here only.
+conn = st.connection("snowflake", ttl=os.getenv("SNOWFLAKE_CONNECTION_TTL"))
+session = conn.session()
 
 # =====================================================================
 # THEME
@@ -188,12 +193,17 @@ st.markdown(CSS, unsafe_allow_html=True)
 # DATA
 # Every query aggregates or bounds its result. Nothing returns a row per
 # ledger line: the register is 253,394 rows and the browser does not want them.
+#
+# Every object is named in full. Two-part names resolve against whatever
+# database the session holds, which for a deployed app is not GSI_TAX_WORKSHOP -
+# it was the personal Workspace database, and the app died looking for
+# USER$<you>.TAX. A USE SCHEMA at startup would only hide the same dependency.
 # =====================================================================
 @st.cache_data(ttl=600)
 def recon_summary():
     return session.sql("""
         SELECT RECON_STATUS, COUNT(*) AS N, ROUND(SUM(ABS(VARIANCE_NET)),2) AS ABS_VAR
-        FROM TAX.V_GST_VS_BAS GROUP BY 1
+        FROM GSI_TAX_WORKSHOP.TAX.V_GST_VS_BAS GROUP BY 1
     """).to_pandas()
 
 
@@ -206,10 +216,10 @@ def ledger_scale():
     would quietly start lying the moment a participant runs that step.
     """
     return session.sql("""
-        SELECT (SELECT COUNT(*) FROM CURATED.GL_HARMONISED) AS LINES,
+        SELECT (SELECT COUNT(*) FROM GSI_TAX_WORKSHOP.CURATED.GL_HARMONISED) AS LINES,
                COUNT(DISTINCT ENTITY_ID)                    AS ENTITIES,
                COUNT(DISTINCT TAX_PERIOD)                   AS PERIODS
-        FROM TAX.V_GST_VS_BAS
+        FROM GSI_TAX_WORKSHOP.TAX.V_GST_VS_BAS
     """).to_pandas().iloc[0]
 
 
@@ -218,7 +228,7 @@ def exception_summary():
     return session.sql("""
         SELECT COUNT(*) AS FLAGGED, SUM(IFF(MAX_SEVERITY='HIGH',1,0)) AS HIGH,
                ROUND(AVG(RISK_SCORE),2) AS AVG_RISK
-        FROM TAX.V_GST_EXCEPTIONS
+        FROM GSI_TAX_WORKSHOP.TAX.V_GST_EXCEPTIONS
     """).to_pandas().iloc[0]
 
 
@@ -226,14 +236,14 @@ def exception_summary():
 def score_histogram():
     return session.sql("""
         SELECT FLOOR(RISK_SCORE/10)*10 AS BUCKET, MAX_SEVERITY, COUNT(*) AS N
-        FROM TAX.V_GST_EXCEPTIONS GROUP BY 1,2 ORDER BY 1
+        FROM GSI_TAX_WORKSHOP.TAX.V_GST_EXCEPTIONS GROUP BY 1,2 ORDER BY 1
     """).to_pandas()
 
 
 @st.cache_data(ttl=600)
 def entities():
     return session.sql(
-        "SELECT DISTINCT ENTITY_NAME FROM TAX.V_GST_EXCEPTIONS ORDER BY 1"
+        "SELECT DISTINCT ENTITY_NAME FROM GSI_TAX_WORKSHOP.TAX.V_GST_EXCEPTIONS ORDER BY 1"
     ).to_pandas()["ENTITY_NAME"].tolist()
 
 
@@ -248,7 +258,7 @@ def severities():
     start producing one.
     """
     have = session.sql(
-        "SELECT DISTINCT MAX_SEVERITY FROM TAX.V_GST_EXCEPTIONS"
+        "SELECT DISTINCT MAX_SEVERITY FROM GSI_TAX_WORKSHOP.TAX.V_GST_EXCEPTIONS"
     ).to_pandas()["MAX_SEVERITY"].tolist()
     return [s for s in ("HIGH", "MEDIUM", "LOW") if s in have]
 
@@ -257,38 +267,52 @@ def severities():
 def heatmap():
     return session.sql("""
         SELECT ENTITY_NAME, TO_VARCHAR(TAX_PERIOD,'YYYY-MM') AS P, COUNT(*) AS N
-        FROM TAX.V_GST_EXCEPTIONS WHERE TAX_PERIOD IS NOT NULL
+        FROM GSI_TAX_WORKSHOP.TAX.V_GST_EXCEPTIONS WHERE TAX_PERIOD IS NOT NULL
         GROUP BY 1,2 ORDER BY 1,2
     """).to_pandas()
 
 
 @st.cache_data(ttl=600)
 def worklist(min_score, sev, entity, search, limit):
-    where = [f"RISK_SCORE >= {int(min_score)}"]
+    """Filtered work queue, worst first.
+
+    Predicates are bound, not interpolated. The values arrive from SELECT DISTINCT
+    over this account's own data so nothing hostile can reach them, but an entity
+    or supplier name containing an apostrophe would break the query outright, and
+    a filter that silently fails in front of a room is worse than a slow one.
+    Returns the clause and its bindings so filtered_totals can reuse both -
+    st.cache_data needs hashable arguments, hence the tuple.
+    """
+    where = ["RISK_SCORE >= ?"]
+    binds = [int(min_score)]
     if sev != "All":
-        where.append(f"MAX_SEVERITY = '{sev}'")
+        where.append("MAX_SEVERITY = ?")
+        binds.append(sev)
     if entity != "All entities":
-        where.append(f"ENTITY_NAME = '{entity}'")
+        where.append("ENTITY_NAME = ?")
+        binds.append(entity)
     if search:
-        safe = search.replace("'", "''").upper()
-        where.append(f"(UPPER(SUPPLIER_NAME) LIKE '%{safe}%' OR UPPER(GL_LINE_ID) LIKE '%{safe}%')")
+        where.append("(UPPER(SUPPLIER_NAME) LIKE ? OR UPPER(GL_LINE_ID) LIKE ?)")
+        like = f"%{search.upper()}%"
+        binds += [like, like]
     clause = "WHERE " + " AND ".join(where)
-    return session.sql(f"""
+    df = session.sql(f"""
         SELECT GL_LINE_ID, ENTITY_NAME, SUPPLIER_NAME, SUPPLY_CATEGORY,
                TAX_TREATMENT, APPLIED_RULE_ID, TAX_VARIANCE, EXCEPTION_CODES,
                MAX_SEVERITY, RISK_SCORE
-        FROM TAX.V_GST_EXCEPTIONS {clause}
+        FROM GSI_TAX_WORKSHOP.TAX.V_GST_EXCEPTIONS {clause}
         ORDER BY RISK_SCORE DESC, ABS(TAX_VARIANCE) DESC
         LIMIT {int(limit)}
-    """).to_pandas(), clause
+    """, params=binds).to_pandas()
+    return df, clause, tuple(binds)
 
 
 @st.cache_data(ttl=600)
-def filtered_totals(clause):
+def filtered_totals(clause, binds):
     return session.sql(f"""
         SELECT COUNT(*) AS N, ROUND(SUM(ABS(COALESCE(TAX_VARIANCE,0))),2) AS ABS_VAR
-        FROM TAX.V_GST_EXCEPTIONS {clause}
-    """).to_pandas().iloc[0]
+        FROM GSI_TAX_WORKSHOP.TAX.V_GST_EXCEPTIONS {clause}
+    """, params=list(binds)).to_pandas().iloc[0]
 
 
 def txt(v):
@@ -370,8 +394,8 @@ entity = f2.selectbox("Entity", ["All entities"] + entities())
 min_score = f3.slider("Minimum risk score", 0, 100, 0, 5)
 search = f4.text_input("Search supplier or line", placeholder="e.g. Ridgeline")
 
-rows, clause = worklist(min_score, sev, entity, search, 150)
-tot = filtered_totals(clause)
+rows, clause, binds = worklist(min_score, sev, entity, search, 150)
+tot = filtered_totals(clause, binds)
 
 # =====================================================================
 # PANELS
