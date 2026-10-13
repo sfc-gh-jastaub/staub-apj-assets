@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CoWork Enterprise Deployment — The Logic Behind the Notebooks</title>
+<style>
+  :root{
+    --brand:#29B5E8; --brand-deep:#11567F; --ink:#1a2b34; --muted:#5b6b75;
+    --line:#e3e9ed; --bg:#f6f9fb; --card:#ffffff; --soft:#eef6fb; --warn:#b9770a; --good:#1a7f5a;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    color:var(--ink);background:var(--bg);line-height:1.6;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:920px;margin:0 auto;padding:0 24px}
+  a{color:var(--brand-deep)}
+  /* hero */
+  header.hero{background:linear-gradient(135deg,var(--brand-deep),var(--brand));color:#fff;padding:64px 0 52px}
+  header.hero .wrap{max-width:920px}
+  .kicker{text-transform:uppercase;letter-spacing:.14em;font-size:12px;font-weight:700;opacity:.85;margin:0 0 14px}
+  header.hero h1{font-size:38px;line-height:1.15;margin:0 0 16px;font-weight:800}
+  header.hero p{font-size:18px;max-width:660px;margin:0;opacity:.95}
+  .mission{margin-top:26px;display:inline-block;background:rgba(255,255,255,.14);
+    border:1px solid rgba(255,255,255,.3);border-radius:10px;padding:12px 18px;font-size:15px}
+  /* how to read */
+  .note{background:var(--soft);border:1px solid #cfe7f6;border-radius:12px;padding:18px 22px;margin:34px 0}
+  .note b{color:var(--brand-deep)}
+  section{padding:38px 0;border-top:1px solid var(--line)}
+  h2{font-size:26px;margin:0 0 6px;color:var(--brand-deep);font-weight:800}
+  h2 .num{color:var(--brand);font-weight:800}
+  .sub{color:var(--muted);margin:0 0 22px;font-size:15px}
+  h3{font-size:19px;margin:30px 0 8px}
+  p{margin:0 0 14px}
+  /* mental model cards */
+  .cards{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:20px 0}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 20px}
+  .card h4{margin:0 0 6px;font-size:16px;color:var(--brand-deep)}
+  .card p{margin:0;font-size:14.5px;color:var(--muted)}
+  /* phase flow */
+  .flow{display:flex;flex-wrap:wrap;gap:8px;margin:22px 0 6px;align-items:stretch}
+  .flow .step{flex:1 1 90px;min-width:90px;background:var(--card);border:1px solid var(--line);
+    border-radius:10px;padding:12px 10px;text-align:center;position:relative}
+  .flow .step .n{display:block;font-size:12px;font-weight:800;color:var(--brand)}
+  .flow .step .t{display:block;font-size:12.5px;margin-top:4px;color:var(--ink);font-weight:600;line-height:1.3}
+  .flow .step .ph{display:block;font-size:10.5px;color:var(--muted);margin-top:5px;text-transform:uppercase;letter-spacing:.05em}
+  /* notebook blocks */
+  .nb{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:26px 28px;margin:20px 0;
+    border-left:5px solid var(--brand)}
+  .nb .head{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:2px}
+  .nb .badge{background:var(--brand-deep);color:#fff;font-weight:800;font-size:12px;border-radius:6px;padding:3px 9px;letter-spacing:.03em}
+  .nb .phase{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.08em;font-weight:700}
+  .nb h3{margin:6px 0 4px;font-size:21px;color:var(--ink)}
+  .nb .q{font-style:italic;color:var(--brand-deep);font-size:15.5px;margin:0 0 14px}
+  .nb .lbl{font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:.09em;color:var(--brand);margin:16px 0 4px}
+  .nb ul{margin:6px 0 0;padding-left:20px}
+  .nb li{margin:5px 0}
+  .handoff{margin-top:16px;padding-top:14px;border-top:1px dashed var(--line);font-size:14px;color:var(--muted)}
+  .handoff b{color:var(--ink)}
+  /* throughline callouts */
+  .through{background:#fffaf0;border:1px solid #f2e0bd;border-radius:12px;padding:18px 22px;margin:18px 0}
+  .through h4{margin:0 0 6px;color:var(--warn);font-size:16px}
+  .through p{margin:0;font-size:14.5px}
+  /* safety table */
+  table{border-collapse:collapse;width:100%;margin:16px 0;font-size:14.5px}
+  th,td{border:1px solid var(--line);padding:10px 12px;text-align:left;vertical-align:top}
+  th{background:var(--soft);color:var(--brand-deep);font-weight:700}
+  code{background:#eef2f4;border-radius:4px;padding:1px 5px;font-size:13px;font-family:"SF Mono",Menlo,Consolas,monospace}
+  .pill{display:inline-block;font-size:11px;font-weight:700;border-radius:20px;padding:2px 10px}
+  .pill.run{background:#e4f6ee;color:var(--good)}
+  .pill.ref{background:#fbeee0;color:var(--warn)}
+  footer{padding:40px 0 60px;color:var(--muted);font-size:13px;border-top:1px solid var(--line)}
+  @media(max-width:640px){.cards{grid-template-columns:1fr}header.hero h1{font-size:30px}}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <p class="kicker">CoWork Enterprise Deployment Guide</p>
+    <h1>The Logic Behind the Notebooks</h1>
+    <p>An overview of <em>why</em> the deployment is sequenced the way it is — and how each notebook sets up the next — for taking a Snowflake&nbsp;CoWork (Snowflake Intelligence) agent from raw tables to a governed, monitored, business-user-ready deployment.</p>
+    <div class="mission">🎯 <strong>Mission:</strong> a production runbook for standing up an enterprise's first agentic-AI use case on Snowflake — not a feature tour.</div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <div class="note">
+    <b>How to read this.</b> This is the narrative companion to the nine hands-on notebooks — a walk through the <em>reasoning</em>, not a step checklist. Each notebook below is framed as <b>the question it answers → the logic → the key decisions → what it hands to the next notebook</b>. If you want the runnable steps, open the notebooks themselves; if you want to understand the shape of the whole thing, read straight down.
+  </div>
+
+  <!-- ============ MENTAL MODEL ============ -->
+  <section style="border-top:none">
+    <h2>Three ideas that explain every decision</h2>
+    <p class="sub">Almost every choice in these notebooks follows from three principles. Hold these and the ordering stops feeling arbitrary.</p>
+    <div class="cards">
+      <div class="card">
+        <h4>1 · The agent runs with <em>caller's rights</em></h4>
+        <p>An agent has no service account. Every tool call and generated query executes as the <em>invoking user's</em> role — inheriting their grants, masking, and row-access. So there is no separate "AI security layer": <strong>getting RBAC right <em>is</em> your CoWork security posture.</strong></p>
+      </div>
+      <div class="card">
+        <h4>2 · Govern → Build → Go&nbsp;Live</h4>
+        <p>You establish meaning and access <em>before</em> the agent exists, so the agent is built into an already-governed environment rather than having governance bolted on afterward. Data → context → access → agent → cost → go-live → improve.</p>
+      </div>
+      <div class="card">
+        <h4>3 · Evaluation is the gate</h4>
+        <p>Nothing is promoted or published on vibes. A scored evaluation (<em>Agent&nbsp;GPA</em>) gates go-live, gates dev→prod promotion, and gates every continuous-improvement change. The threshold is the decision-maker.</p>
+      </div>
+      <div class="card">
+        <h4>+ · Safe on a shared account</h4>
+        <p>A cross-cutting rule: operations that touch only <em>our own</em> objects are runnable; operations that would affect shared state (the singleton CoWork object, account settings, other teams) are shown as reference. More on this at the end.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ THE ARC ============ -->
+  <section>
+    <h2>The arc at a glance</h2>
+    <p class="sub">Nine notebooks, one continuous story. Run 00 → 07 in order; run 08 last to tear everything down.</p>
+    <div class="flow">
+      <div class="step"><span class="n">00</span><span class="t">Lab Setup</span><span class="ph">Foundation</span></div>
+      <div class="step"><span class="n">01</span><span class="t">Context Layer</span><span class="ph">Meaning</span></div>
+      <div class="step"><span class="n">02</span><span class="t">Govern Access</span><span class="ph">Access</span></div>
+      <div class="step"><span class="n">03</span><span class="t">Build &amp; Harden</span><span class="ph">Agent</span></div>
+      <div class="step"><span class="n">04</span><span class="t">Control Cost</span><span class="ph">Spend</span></div>
+      <div class="step"><span class="n">05</span><span class="t">Evaluate &amp; Go Live</span><span class="ph">Launch</span></div>
+      <div class="step"><span class="n">06</span><span class="t">Dev → Prod</span><span class="ph">Promote</span></div>
+      <div class="step"><span class="n">07</span><span class="t">Continuous Improve</span><span class="ph">Operate</span></div>
+      <div class="step"><span class="n">08</span><span class="t">Cleanup</span><span class="ph">Tear down</span></div>
+    </div>
+    <p style="font-size:13.5px;color:var(--muted);margin-top:14px">The spine maps to a phase model: <strong>Phase 0</strong> confirm the foundation · <strong>1</strong> build the context layer · <strong>2</strong> govern AI access · <strong>3</strong> build &amp; harden the agent · <strong>4</strong> control the cost · <strong>5</strong> evaluate, go live &amp; operate — with promotion (06) and the improvement loop (07) as the "living system" that follows launch.</p>
+  </section>
+
+  <!-- ============ NOTEBOOK WALKTHROUGH ============ -->
+  <section>
+    <h2>Walking the logic, notebook by notebook</h2>
+    <p class="sub">Each block: the question it answers, the reasoning, the decisions that matter, and how it feeds forward.</p>
+
+    <!-- 00 -->
+    <div class="nb">
+      <div class="head"><span class="badge">00</span><span class="phase">Phase 0 · Foundation</span></div>
+      <h3>Lab Setup</h3>
+      <p class="q">"What do I build on?"</p>
+      <p><b>The logic.</b> In a real engagement, Phase 0 is to <em>confirm</em> the mature estate a customer already runs — RBAC, network policy, MFA, masking. There's no estate to confirm in a demo, so this notebook instead <em>builds a clean, isolated sandbox</em> you can safely tear down: one database, three schemas, one dedicated role, an XS warehouse, and self-contained sample data (a fictional capital-markets firm).</p>
+      <p class="lbl">Key decisions</p>
+      <ul>
+        <li>Everything lives under <em>one</em> database + role, so the whole demo is grantable and droppable as a unit — isolation on a shared account.</li>
+        <li>Cross-region inference is enabled here so later Cortex features "just work."</li>
+      </ul>
+      <div class="handoff"><b>Hands off →</b> a governed namespace and the raw tables that the context layer will give meaning to.</div>
+    </div>
+
+    <!-- 01 -->
+    <div class="nb">
+      <div class="head"><span class="badge">01</span><span class="phase">Phase 1 · Meaning</span></div>
+      <h3>Build the Context Layer</h3>
+      <p class="q">"How does the agent know what the data <em>means</em>?"</p>
+      <p><b>The logic.</b> An agent is only as good as the meaning layer beneath it. Raw tables don't tell an LLM that "AUM" is assets under management or how clients join to trades. The <strong>semantic view</strong> encodes that — logical tables, relationships, facts, dimensions, business metrics, and verified example queries — so the agent generates correct SQL instead of guessing. A second <strong>Cortex Search</strong> service indexes unstructured research notes for retrieval (RAG), so the agent can answer qualitative questions too.</p>
+      <p class="lbl">Key decisions</p>
+      <ul>
+        <li><b>Fuzzy matching comes first.</b> A Cortex Search service over the high-cardinality <code>CLIENT_NAME</code> column is created <em>before</em> the semantic view, because the view's <code>CLIENT_NAME</code> dimension references it (<code>WITH CORTEX SEARCH SERVICE</code>) so a user typing "Acme" resolves to "Acme Capital Partners LLC."</li>
+        <li><b>Descriptions are the #1 accuracy lever</b>, relationships must be explicit (the agent won't join what you didn't declare), and <b>verified queries</b> teach correct patterns.</li>
+        <li><b>One semantic view per domain.</b> A single Analyst call works against one view; tightly-related tables stay together, genuinely distinct domains get their own views.</li>
+        <li><b>Validate before building the agent.</b> Query the view directly first — if the numbers are wrong here, the agent will be wrong too.</li>
+      </ul>
+      <div class="handoff"><b>Hands off →</b> a validated semantic view + search services that the agent will be wired to in NB03 — but only after access is governed in NB02.</div>
+    </div>
+
+    <!-- 02 -->
+    <div class="nb">
+      <div class="head"><span class="badge">02</span><span class="phase">Phase 2 · Access</span></div>
+      <h3>Govern AI Access</h3>
+      <p class="q">"Who is allowed to see what — before anything can consume it?"</p>
+      <p><b>The logic.</b> Because the agent runs with caller's rights (principle #1), governing the <em>user</em> governs the agent. This notebook builds the consumer role with the <strong>four independent layers</strong> of access an agent needs at runtime, and enforces PII at the data layer. It comes <em>before</em> the agent exists on purpose: the agent should be born into a governed schema, and masking must already be in place so there's never a window where raw PII could surface.</p>
+      <p class="lbl">Key decisions</p>
+      <ul>
+        <li><b>The four-layer model:</b> (1) platform entitlement — <code>CORTEX_USER</code> + <code>USAGE</code> on DB/WH; (2) the specific agent — <code>USAGE ON AGENT</code>, <em>deferred to NB03</em> since the agent doesn't exist yet; (3) tools/resources — the search services + semantic view; (4) data — <code>SELECT</code> on the tables.</li>
+        <li><b>Masking is a data-layer control, not a prompt.</b> An <code>AI_REDACT</code> masking policy on the email column redacts for non-privileged roles. Orchestration instructions ("don't show PII") are <em>not</em> a security boundary — they can be talked around; a masking policy cannot.</li>
+      </ul>
+      <div class="handoff"><b>Hands off →</b> a least-privilege consumer role (missing only the agent grant) and enforced masking. User <em>provisioning</em> is deliberately deferred to go-live (NB05) — a user is inert until the agent exists and is published.</div>
+    </div>
+
+    <!-- 03 -->
+    <div class="nb">
+      <div class="head"><span class="badge">03</span><span class="phase">Phase 3 · Agent</span></div>
+      <h3>Build &amp; Harden the Agent</h3>
+      <p class="q">"How do I assemble the agent — and what makes it trustworthy?"</p>
+      <p><b>The logic.</b> The agent is defined <em>as code</em> from a YAML specification: the model, an orchestration budget, response and routing instructions, and the tools wired to the semantic view + search service. The specification is the artifact you version and promote later. "Hardening" is the set of properties that make it safe to hand to real users.</p>
+      <p class="lbl">Key decisions</p>
+      <ul>
+        <li><b>Tool descriptions are the #1 lever</b> for correct routing — the agent picks tools by reading them. Keep the agent narrow.</li>
+        <li><b>Agents are serverless</b> — the warehouse must be named in the spec, not inherited from the session.</li>
+        <li><b>The final access layer lands here:</b> now that the agent exists, tier-2 <code>USAGE ON AGENT</code> is granted, completing NB02's four-layer model.</li>
+        <li><b>Agent identity</b> = caller's rights, no service account, a securable object with an owner, per-user OAuth for external (MCP) actions, and full <code>USER_NAME</code> attribution in the audit trail. You govern the agent by governing users.</li>
+        <li>Account-level <b>guardrails</b> (prompt-injection / jailbreak) and the <b>audit trail</b> are confirmed here.</li>
+      </ul>
+      <div class="handoff"><b>Hands off →</b> a working, access-complete agent that answers grounded questions — ready to be made cost-safe.</div>
+    </div>
+
+    <!-- 04 -->
+    <div class="nb">
+      <div class="head"><span class="badge">04</span><span class="phase">Phase 4 · Spend</span></div>
+      <h3>Control the Cost</h3>
+      <p class="q">"How do I give teams AI access without runaway spend?"</p>
+      <p><b>The logic.</b> AI credits come from two meters — warehouse compute (the SQL the agent runs) and serverless LLM reasoning — and can be harder to predict than plain compute. The discipline is <strong>Observe → Attribute → Control</strong>: see what you're spending, tie every credit to a cost centre, then cap it.</p>
+      <p class="lbl">Key decisions</p>
+      <ul>
+        <li><b>Attribute before you budget:</b> tag the agent <em>and</em> its warehouse with a cost-centre tag so one budget captures the whole team.</li>
+        <li><b>Layered controls:</b> a warehouse statement timeout, a per-agent budget with a notification threshold, a per-user quota, and two team budget models (resource-level vs shared-resource).</li>
+        <li><b>Enforcement stays in monitoring mode</b> on the shared account — the runnable-vs-reference rule (see below) keeps us from capping other teams.</li>
+      </ul>
+      <div class="handoff"><b>Hands off →</b> an agent whose spend is visible, attributed, and capped — safe to expose to users at go-live.</div>
+    </div>
+
+    <!-- 05 -->
+    <div class="nb">
+      <div class="head"><span class="badge">05</span><span class="phase">Phase 5 · Launch</span></div>
+      <h3>Evaluate, Go Live &amp; Operate</h3>
+      <p class="q">"Is it good enough to ship — and how do real users reach it?"</p>
+      <p><b>The logic.</b> This is where evaluation-as-a-gate (principle #3) becomes concrete, and where the agent finally meets business users. First prove quality; only then publish, brand, and provision users.</p>
+      <p class="lbl">Key decisions</p>
+      <ul>
+        <li><b>Evaluate first:</b> golden smoke tests for fast iteration, then a scored <b>Agent GPA</b> run against a curated dataset. Require a threshold (e.g. answer-correctness ≥ 0.85, zero regressions) before publishing.</li>
+        <li><b>Publishing is curation:</b> the agent is added to the account's singleton CoWork object. Without curation the dropdown shows <em>every</em> agent a user can access; with it, only your production-ready shortlist. Deep links let you test an agent before curating it.</li>
+        <li><b>Provision SI-only users <em>here</em>, at go-live.</b> A dedicated business user is created and locked to <code>ai.snowflake.com</code> via <code>ALLOWED_INTERFACES</code> — no worksheets, no SQL, no drivers. This lives at launch (not in NB02) because a user can't do anything until the agent is built <em>and</em> published — "build the agent, then let users in."</li>
+        <li><b>Operate:</b> reuse the golden questions as a scheduled health check.</li>
+      </ul>
+      <div class="handoff"><b>Hands off →</b> a live, branded, evaluated agent with business users able to reach it — ready to be treated as a versioned, promotable asset.</div>
+    </div>
+
+    <!-- 06 -->
+    <div class="nb">
+      <div class="head"><span class="badge">06</span><span class="phase">Phase 5+ · Promote</span></div>
+      <h3>Dev → Prod Promotion</h3>
+      <p class="q">"How do I move a validated agent to production safely?"</p>
+      <p><b>The logic.</b> You promote the <em>specification</em>, not the running agent — the spec is the git-style source of truth. Capture it, version it with a traceable comment, and deploy the identical spec to the prod target. The evaluation threshold from NB05 becomes the <strong>promotion gate</strong>: no pass, no publish.</p>
+      <p class="lbl">Key decisions</p>
+      <ul>
+        <li>The prod agent is created from the <em>same</em> spec (here in a prod-scoped schema; in reality, a prod account).</li>
+        <li><b>Clean cut-over:</b> the promoted agent is added to the CoWork object and the dev build removed, so users see exactly one production agent.</li>
+      </ul>
+      <div class="handoff"><b>Hands off →</b> a production agent under change control — and the pattern for every future release.</div>
+    </div>
+
+    <!-- 07 -->
+    <div class="nb">
+      <div class="head"><span class="badge">07</span><span class="phase">Phase 5+ · Operate</span></div>
+      <h3>Continuous Improvement</h3>
+      <p class="q">"Go-live is the start — how does the agent keep getting better?"</p>
+      <p><b>The logic.</b> A self-improving agent is a <em>governed closed loop with a human in it</em>, not autonomous self-modification. Mine real production traces for failures, fold them into the evaluation dataset, score a baseline, improve the agent's <strong>instructions</strong> (the primary lever — not more tools), then re-evaluate to prove the change helped with no regressions before promoting.</p>
+      <p class="lbl">Key decisions</p>
+      <ul>
+        <li><b>Instructions, not tools,</b> are the main improvement lever — and every change is a versioned, evaluated spec edit.</li>
+        <li>The loop is <b>gated by evaluation</b> and reviewed by a human before anything ships; schedule it (e.g. a monthly task) so the agent improves on real usage.</li>
+      </ul>
+      <div class="handoff"><b>Hands off →</b> back into NB06 — a validated improvement is promoted through the same gate. The system is now living.</div>
+    </div>
+
+    <!-- 08 -->
+    <div class="nb" style="border-left-color:#b9770a">
+      <div class="head"><span class="badge" style="background:#b9770a">08</span><span class="phase">Tear down</span></div>
+      <h3>Cleanup</h3>
+      <p class="q">"How do I remove the demo without touching anything shared?"</p>
+      <p><b>The logic.</b> Deliberately narrow. It removes <em>only</em> the demo footprint — our agents, budgets, quota, masking policy, the user, database, warehouse, and roles — and detaches our agents from the shared CoWork object <em>without dropping the object</em>. Shared, pre-existing state (the singleton object, PUBLIC grants, account guardrails) is never touched.</p>
+      <div class="handoff"><b>Result →</b> the account is back to its prior state; the shared CoWork object is preserved for other teams.</div>
+    </div>
+  </section>
+
+  <!-- ============ THROUGHLINES ============ -->
+  <section>
+    <h2>The throughlines that tie it together</h2>
+    <p class="sub">Read the notebooks and the same few ideas keep resurfacing. These are what a reader should walk away with.</p>
+
+    <div class="through">
+      <h4>Governance is inherited, not configured separately</h4>
+      <p>RBAC + masking + row-access flow straight through to agent output because the agent uses the caller's rights. That's why NB02 (access) precedes NB03 (build): the access model is a prerequisite, not an afterthought.</p>
+    </div>
+    <div class="through">
+      <h4>Evaluation is the recurring gate</h4>
+      <p>The same Agent GPA evaluation gates three different moments — go-live (NB05), dev→prod promotion (NB06), and every continuous-improvement change (NB07). "Does it clear the threshold?" is the one question that decides whether anything ships.</p>
+    </div>
+    <div class="through">
+      <h4>The specification is the unit of change</h4>
+      <p>The agent is authored, versioned, promoted, and optimized as a YAML spec — never edited live in isolation. That makes it reviewable, diffable, and safe to promote across environments.</p>
+    </div>
+    <div class="through">
+      <h4>Build first, admit users last</h4>
+      <p>Access <em>scaffolding</em> (the role, grants, masking) is foundational and comes early; actual <em>user provisioning</em> waits until the agent is built and published. You don't hand out keys to a building that isn't finished.</p>
+    </div>
+  </section>
+
+  <!-- ============ SAFETY MODEL ============ -->
+  <section>
+    <h2>The runnable-vs-reference principle</h2>
+    <p class="sub">This guide was built and verified on a <em>shared</em> Snowflake account, which forces a discipline that also happens to be exactly right for a real customer's account.</p>
+    <table>
+      <tr><th>Kind of operation</th><th>How it's treated</th><th>Examples</th></tr>
+      <tr>
+        <td>Touches only <b>our own</b> objects, or is scoped by <b>user tags</b></td>
+        <td><span class="pill run">Runnable</span></td>
+        <td>Our database, role, agent, budgets, per-user quota, the dedicated SI-only user, adding/removing <em>our</em> agent from the shared object.</td>
+      </tr>
+      <tr>
+        <td>Would affect <b>shared state</b>, enforce broadly, or harden the account</td>
+        <td><span class="pill ref">Reference</span></td>
+        <td>Creating/dropping the singleton CoWork object, revoking <code>CORTEX_USER</code> from <code>PUBLIC</code>, changing account guardrails, network policy / SSO / MFA / PrivateLink.</td>
+      </tr>
+    </table>
+    <p>Account-level hardening that a real deployment must do — but that we don't run on a shared account — includes network policies, SSO/IdP, SCIM, MFA, PrivateLink, and revoking <code>CORTEX_USER</code> from <code>PUBLIC</code>. In a customer's own account, the "reference" operations become runnable; the principle simply says: <strong>never let a demo change state that belongs to someone else.</strong></p>
+  </section>
+
+  <footer>
+    <p><strong>CoWork Enterprise Deployment — Overview.</strong> The narrative companion to the nine hands-on notebooks (<code>Notebook_00</code> → <code>Notebook_08</code>). For the runnable steps, open the notebooks; account-level hardening (network policies, SSO/IdP, SCIM, MFA, PrivateLink) is run in the customer's own account.</p>
+  </footer>
+
+</div>
+</body>
+</html>
